@@ -17,49 +17,26 @@ Custom notification and completion hooks for Claude Code with Text-to-Speech (TT
 - [uv](https://docs.astral.sh/uv/) - Fast Python package installer (scripts auto-install dependencies)
 - Audio player: `afplay` (macOS), `mpg123`, or `ffplay` (Linux)
 
-## Quick Start (macOS)
+## Installation
 
-**For basic setup with system voice (no API keys needed):**
+### 1. Install dependencies (if needed)
 
 ```bash
-# 1. Install uv (if not already installed)
+# Install uv (Python package manager)
 curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# 2. Clone and set up
-git clone https://github.com/Kieldro/claude-speaks.git ~/repos/claude-speaks
-mkdir -p ~/.claude/hooks
-ln -s ~/repos/claude-speaks/notification.py ~/.claude/hooks/notification.py
-ln -s ~/repos/claude-speaks/stop.py ~/.claude/hooks/stop.py
-ln -s ~/repos/claude-speaks/utils ~/.claude/hooks/utils
-
-# 3. Configure hooks (add to ~/.claude/settings.json)
-# See "Configure Claude Code" section below for JSON config
-
-# 4. Test it!
-python3 ~/repos/claude-speaks/utils/tts/system_voice_tts.py "Hello from Claude"
 ```
 
-## Full Installation
-
-### 1. Clone this repository
+### 2. Clone and set up symlinks
 
 ```bash
+# Clone repository
 git clone https://github.com/Kieldro/claude-speaks.git ~/repos/claude-speaks
-cd ~/repos/claude-speaks
-```
 
-### 2. Set up symlinks
-
-Replace your existing hooks with symlinks to this repo:
-
-```bash
 # Backup existing hooks (optional)
 mv ~/.claude/hooks ~/.claude/hooks-backup
 
-# Create hooks directory
-mkdir -p ~/.claude/hooks
-
 # Create symlinks
+mkdir -p ~/.claude/hooks
 ln -s ~/repos/claude-speaks/notification.py ~/.claude/hooks/notification.py
 ln -s ~/repos/claude-speaks/stop.py ~/.claude/hooks/stop.py
 ln -s ~/repos/claude-speaks/utils ~/.claude/hooks/utils
@@ -67,7 +44,7 @@ ln -s ~/repos/claude-speaks/utils ~/.claude/hooks/utils
 
 ### 3. Configure Claude Code
 
-Edit `~/.claude/settings.json`:
+Add to `~/.claude/settings.json`:
 
 ```json
 {
@@ -90,9 +67,17 @@ Edit `~/.claude/settings.json`:
 }
 ```
 
-### 4. Set up environment variables
+### 4. Test it!
 
-Add to `~/.env`:
+```bash
+python3 ~/repos/claude-speaks/utils/tts/system_voice_tts.py "Hello from Claude"
+```
+
+**Basic setup complete!** The hooks will use system voice by default (no API keys needed).
+
+### 5. Optional: Set up API keys for better voices
+
+Add to `~/.env` for enhanced features:
 
 ```bash
 # Required for LLM-generated completion messages (optional)
@@ -112,15 +97,15 @@ ELEVENLABS_API_KEY=...
 # ENGINEER_NAME=YourName  # Falls back to $USER if not set
 ```
 
-### 5. Generate TTS cache (optional but recommended)
+### 6. Optional: Generate TTS cache
+
+If you added `ELEVENLABS_API_KEY` above, pre-generate cached audio:
 
 ```bash
 python3 ~/repos/claude-speaks/utils/tts/generate_cache.py
 ```
 
-This pre-generates cached audio files (*.mp3) for all static messages, saving API costs and reducing latency.
-
-**Note:** Cache generation requires `ELEVENLABS_API_KEY`. If you don't have one, the hooks will fall back to OpenAI TTS or system voice on first use.
+This creates cached audio files (*.mp3) for all static messages, saving API costs and reducing latency.
 
 ## How It Works
 

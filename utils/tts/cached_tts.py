@@ -166,7 +166,9 @@ def speak_with_cache(text, verbose=False):
 
     # Check if cached audio exists
     if cached_audio.exists():
-        # Play cached audio
+        # Extract voice ID from cache path (cache/{voice_id}/hash.mp3)
+        # This reflects the actual voice used, not the current env var
+        result["voice_id"] = cached_audio.parent.name
         result["cache_hit"] = True
         result["tts_backend"] = "cache"
         if play_audio(cached_audio):
