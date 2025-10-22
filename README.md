@@ -5,10 +5,11 @@ Custom notification and completion hooks for Claude Code with Text-to-Speech (TT
 ## Features
 
 - 🔔 **Smart Notifications**: Audio alerts when Claude needs your input
-- 🎉 **Completion Messages**: 20 cached + LLM-generated completion messages
-- 🎵 **TTS Caching**: Pre-cached audio files for instant playback (no API calls)
+- 🎵 **Pre-cached Voices**: 4 voices with 20+ messages ready to use (no API keys needed!)
+- 🎉 **Completion Messages**: Cached messages + optional LLM-generated unique messages
 - 🤖 **LLM Integration**: Optional unique messages via OpenAI/Anthropic/Ollama
 - ⚡ **Fast Fallback**: 2-second timeout, guaranteed cached fallback
+- 🗣️ **Multi-voice Support**: Rachel, Edward, Laura, George - switch anytime
 
 ## Requirements
 
@@ -73,11 +74,16 @@ Add to `~/.claude/settings.json`:
 python3 ~/repos/claude-speaks/utils/tts/system_voice_tts.py "Hello from Claude"
 ```
 
-**Basic setup complete!** The hooks will use system voice by default (no API keys needed).
+**Basic setup complete!** The hooks work immediately with:
+- **4 pre-cached voices** (Rachel, Edward, Laura, George) - no API keys needed
+- **20+ completion messages** already cached as MP3 files
+- **System voice fallback** for any uncached messages
 
-### 5. Optional: Set up API keys for better voices
+### 5. Optional: Add API keys for custom voices or new messages
 
-Add to `~/.env` for enhanced features:
+Only needed if you want to generate cache for different voices or add new messages.
+
+Add to `~/.env`:
 
 ```bash
 # Required for LLM-generated completion messages (optional)
@@ -97,15 +103,18 @@ ELEVENLABS_API_KEY=...
 # ENGINEER_NAME=YourName  # Falls back to $USER if not set
 ```
 
-### 6. Optional: Generate TTS cache
+### 6. Optional: Generate cache for new voices
 
-If you added `ELEVENLABS_API_KEY` above, pre-generate cached audio:
+If you want to use a different voice or add new messages:
 
 ```bash
+# Set your preferred voice in ~/.env first
+# ELEVENLABS_VOICE_ID=<voice_id>
+
 python3 ~/repos/claude-speaks/utils/tts/generate_cache.py
 ```
 
-This creates cached audio files (*.mp3) for all static messages, saving API costs and reducing latency.
+This generates cache files for your selected voice.
 
 ## How It Works
 
