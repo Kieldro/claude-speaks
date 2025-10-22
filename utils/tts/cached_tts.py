@@ -1,4 +1,11 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.11"
+# dependencies = [
+#     "python-dotenv",
+#     "requests",
+# ]
+# ///
 """
 Cached TTS Wrapper
 Checks for cached audio files before generating new ones to save API costs and latency.
@@ -12,17 +19,23 @@ from pathlib import Path
 
 try:
     from dotenv import load_dotenv
-    load_dotenv()
+    load_dotenv(Path.home() / '.env')
 except ImportError:
     pass
 
 
 def get_cache_dir():
-    """Get the cache directory path."""
+    """Get the cache directory path for the current voice."""
     script_dir = Path(__file__).parent
-    cache_dir = script_dir / "cache"
-    cache_dir.mkdir(exist_ok=True)
-    return cache_dir
+    base_cache_dir = script_dir / "cache"
+
+    # Get voice ID from environment or use default
+    voice_id = os.getenv('ELEVENLABS_VOICE_ID', '21m00Tcm4TlvDq8ikWAM')
+
+    # Create voice-specific subdirectory
+    voice_cache_dir = base_cache_dir / voice_id
+    voice_cache_dir.mkdir(parents=True, exist_ok=True)
+    return voice_cache_dir
 
 
 def get_cache_key(text):
@@ -31,7 +44,7 @@ def get_cache_key(text):
 
 
 def get_cached_audio_path(text):
-    """Get path to cached audio file for given text."""
+    """Get path to cached audio file for given text and current voice."""
     cache_dir = get_cache_dir()
     cache_key = get_cache_key(text)
     return cache_dir / f"{cache_key}.mp3"
@@ -99,11 +112,8 @@ def generate_and_cache_audio(text, audio_path):
     try:
         import requests
 
-        # Get voice ID from environment variable or use default
-        # Popular voices:
-        # - 21m00Tcm4TlvDq8ikWAM: Rachel - Professional female (default)
-        # - goT3UYdM9bhm0n2lmKQx: Edward - British, Dark, Seductive, Low
-        # - ZF6FPAbjXT4488VcRRnw: Amelia - British
+        # Get voice ID from environment variable or use default (Rachel)
+        # See README.md for available voice IDs
         voice_id = os.getenv('ELEVENLABS_VOICE_ID', '21m00Tcm4TlvDq8ikWAM')
         url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
 
@@ -136,47 +146,76 @@ def generate_and_cache_audio(text, audio_path):
         return False
 
 
-def speak_with_cache(text):
+def speak_with_cache(text, verbose=False):
     """
     Speak text using cached audio if available, otherwise generate and cache.
     Falls back to non-cached TTS if caching is not supported.
+    Returns dict with metadata for logging.
     """
+    result = {
+        "cache_hit": False,
+        "cache_file": None,
+        "tts_backend": None,
+        "voice_id": None,
+        "fallback_used": False
+    }
+
     # Get cached audio path
     cached_audio = get_cached_audio_path(text)
+    result["cache_file"] = str(cached_audio)
 
     # Check if cached audio exists
     if cached_audio.exists():
         # Play cached audio
-        return play_audio(cached_audio)
+        result["cache_hit"] = True
+        result["tts_backend"] = "cache"
+        if play_audio(cached_audio):
+            return result
+        # If playback failed, continue to regenerate
 
     # Check if we can cache (ElevenLabs only)
     if os.getenv('ELEVENLABS_API_KEY'):
+        voice_id = os.getenv('ELEVENLABS_VOICE_ID', '21m00Tcm4TlvDq8ikWAM')
+        result["tts_backend"] = "elevenlabs"
+        result["voice_id"] = voice_id
         # Generate and cache audio
         if generate_and_cache_audio(text, cached_audio):
-            return play_audio(cached_audio)
+            if play_audio(cached_audio):
+                return result
 
     # Fall back to regular TTS (no caching for OpenAI/system voice)
+    result["fallback_used"] = True
     tts_script = get_tts_script_path()
     if tts_script:
+        result["tts_backend"] = Path(tts_script).stem
         try:
             subprocess.run(
                 ['python3', tts_script, text],
                 capture_output=True,
                 timeout=10
             )
-            return True
+            return result
         except (subprocess.TimeoutExpired, subprocess.SubprocessError):
-            return False
+            pass
 
-    return False
+    return result
 
 
 if __name__ == '__main__':
     if len(sys.argv) > 1:
-        message = ' '.join(sys.argv[1:])
-        if speak_with_cache(message):
-            sys.exit(0)
-        else:
-            sys.exit(1)
+        # Check for --json flag
+        output_json = '--json' in sys.argv
+
+        # Filter out --json flag from arguments to get the actual message
+        message_args = [arg for arg in sys.argv[1:] if arg != '--json']
+        message = ' '.join(message_args)
+
+        result = speak_with_cache(message, verbose=True)
+
+        # Output metadata as JSON for parent process to capture
+        if output_json:
+            import json
+            print(json.dumps(result))
+        sys.exit(0 if result.get("tts_backend") else 1)
     else:
         sys.exit(1)

@@ -8,7 +8,7 @@ import subprocess
 import os
 
 def speak(text):
-    """Use system voice (spd-say) for text-to-speech."""
+    """Use system voice for text-to-speech."""
     # Get volume from environment variable (default: 0, range: -100 to +100)
     volume = os.getenv('TTS_VOLUME', '0')
 
@@ -21,18 +21,23 @@ def speak(text):
         volume = '0'  # Default if invalid
 
     try:
-        # Use spd-say (speech-dispatcher) with volume control
-        subprocess.run(['spd-say', '--volume', volume, text], check=True, timeout=10)
+        # macOS: use 'say' command (no volume control via CLI)
+        subprocess.run(['say', text], check=True, timeout=10)
         return True
     except (subprocess.SubprocessError, FileNotFoundError, subprocess.TimeoutExpired):
-        # Fallback to espeak if spd-say fails (espeak uses different volume syntax)
         try:
-            # espeak volume: 0-200, default 100
-            espeak_vol = str(max(0, min(200, int(volume) + 100)))
-            subprocess.run(['espeak', '-a', espeak_vol, text], check=True, timeout=10)
+            # Linux: Use spd-say (speech-dispatcher) with volume control
+            subprocess.run(['spd-say', '--volume', volume, text], check=True, timeout=10)
             return True
         except (subprocess.SubprocessError, FileNotFoundError, subprocess.TimeoutExpired):
-            return False
+            try:
+                # Fallback to espeak if spd-say fails (espeak uses different volume syntax)
+                # espeak volume: 0-200, default 100
+                espeak_vol = str(max(0, min(200, int(volume) + 100)))
+                subprocess.run(['espeak', '-a', espeak_vol, text], check=True, timeout=10)
+                return True
+            except (subprocess.SubprocessError, FileNotFoundError, subprocess.TimeoutExpired):
+                return False
 
 if __name__ == '__main__':
     if len(sys.argv) > 1:
