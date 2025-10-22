@@ -13,6 +13,7 @@ import sys
 import subprocess
 import random
 from pathlib import Path
+from datetime import datetime
 
 try:
     from dotenv import load_dotenv
@@ -57,11 +58,17 @@ def get_tts_script_path():
 
 
 def announce_notification():
-    """Announce that the agent needs user input."""
+    """Announce that the agent needs user input. Returns TTS metadata dict."""
+    tts_metadata = {
+        "tts_triggered": False,
+        "message": None,
+        "personalized": False
+    }
+
     try:
         tts_script = get_tts_script_path()
         if not tts_script:
-            return  # No TTS scripts available
+            return tts_metadata  # No TTS scripts available
 
         # Get engineer name if available, fallback to USER
         engineer_name = os.getenv('ENGINEER_NAME', '').strip()
@@ -69,25 +76,43 @@ def announce_notification():
             engineer_name = os.getenv('USER', '').strip()
 
         # Create notification message with 30% chance to include name
-        if engineer_name and random.random() < 0.3:
+        personalized = engineer_name and random.random() < 0.3
+        if personalized:
             notification_message = f"{engineer_name}, your agent needs your input"
         else:
             notification_message = "Your agent needs your input"
-        
-        # Call the TTS script with the notification message
-        subprocess.run([
-            "python3", tts_script, notification_message
+
+        tts_metadata["message"] = notification_message
+        tts_metadata["personalized"] = personalized
+        tts_metadata["tts_triggered"] = True
+
+        # Call the TTS script with the notification message and capture metadata
+        result = subprocess.run([
+            "python3", tts_script, notification_message, "--json"
         ],
-        capture_output=True,  # Suppress output
-        timeout=10  # 10-second timeout
+        capture_output=True,
+        text=True,
+        timeout=10
         )
-        
-    except (subprocess.TimeoutExpired, subprocess.SubprocessError, FileNotFoundError):
-        # Fail silently if TTS encounters issues
-        pass
-    except Exception:
-        # Fail silently for any other errors
-        pass
+
+        # Parse TTS backend metadata if available
+        if result.returncode == 0 and result.stdout.strip():
+            try:
+                tts_details = json.loads(result.stdout.strip())
+                tts_metadata.update(tts_details)
+            except json.JSONDecodeError:
+                pass
+
+    except subprocess.TimeoutExpired:
+        tts_metadata["error"] = "TTS timeout"
+    except FileNotFoundError as e:
+        tts_metadata["error"] = f"TTS script not found: {type(e).__name__}"
+    except subprocess.SubprocessError as e:
+        tts_metadata["error"] = f"TTS subprocess error: {type(e).__name__}"
+    except Exception as e:
+        tts_metadata["error"] = f"Unexpected error: {type(e).__name__}"
+
+    return tts_metadata
 
 
 def main():
@@ -99,12 +124,12 @@ def main():
         
         # Read JSON input from stdin
         input_data = json.loads(sys.stdin.read())
-        
-        # Ensure log directory exists
-        import os
-        log_dir = os.path.join(os.getcwd(), 'logs')
-        os.makedirs(log_dir, exist_ok=True)
-        log_file = os.path.join(log_dir, 'notification.json')
+
+        # Ensure log directory exists relative to this script
+        script_dir = Path(__file__).parent
+        log_dir = script_dir / 'logs'
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_file = log_dir / 'notification.json'
         
         # Read existing log data or initialize empty list
         if os.path.exists(log_file):
@@ -115,18 +140,21 @@ def main():
                     log_data = []
         else:
             log_data = []
-        
-        # Append new data
-        log_data.append(input_data)
-        
-        # Write back to file with formatting
-        with open(log_file, 'w') as f:
-            json.dump(log_data, f, indent=2)
-        
+
+        # Append new data with timestamp
+        input_data['timestamp'] = datetime.now().isoformat()
+
         # Announce notification via TTS only if --notify flag is set
         # Skip TTS for the generic "Claude is waiting for your input" message
         if args.notify and input_data.get('message') != 'Claude is waiting for your input':
-            announce_notification()
+            tts_metadata = announce_notification()
+            input_data['tts_metadata'] = tts_metadata
+
+        log_data.append(input_data)
+
+        # Write back to file with formatting
+        with open(log_file, 'w') as f:
+            json.dump(log_data, f, indent=2)
         
         sys.exit(0)
         

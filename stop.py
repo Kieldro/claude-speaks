@@ -21,35 +21,12 @@ try:
 except ImportError:
     pass  # dotenv is optional
 
+# Import shared message definitions
+sys.path.insert(0, str(Path(__file__).parent / "utils"))
+from messages import get_completion_messages
 
 # LLM completion message generation timeout (seconds)
 LLM_TIMEOUT = 2
-
-
-def get_completion_messages():
-    """Return list of friendly completion messages."""
-    return [
-        "Work complete!",
-        "All done!",
-        "Task finished!",
-        "Job complete!",
-        "Ready for next task!",
-        "Mission accomplished!",
-        "Task complete!",
-        "Finished successfully!",
-        "All set!",
-        "Done and dusted!",
-        "Wrapped up!",
-        "Job well done!",
-        "That's a wrap!",
-        "Successfully completed!",
-        "All finished!",
-        "Task accomplished!",
-        "Good to go!",
-        "Completed successfully!",
-        "Everything's done!",
-        "Ready when you are!"
-    ]
 
 
 def get_tts_script_path():
@@ -87,18 +64,18 @@ def get_tts_script_path():
     return None
 
 
-def get_llm_completion_message():
+def get_llm_completion_message_with_backend():
     """
     Generate completion message using available LLM services.
     Priority order: OpenAI > Anthropic > Ollama > fallback to random message
-    
+
     Returns:
-        str: Generated or fallback completion message
+        tuple: (message: str, backend: str or None)
     """
     # Get current script directory and construct utils/llm path
     script_dir = Path(__file__).parent
     llm_dir = script_dir / "utils" / "llm"
-    
+
     # Try OpenAI first (highest priority)
     if os.getenv('OPENAI_API_KEY'):
         oai_script = llm_dir / "oai.py"
@@ -112,7 +89,7 @@ def get_llm_completion_message():
                 timeout=LLM_TIMEOUT
                 )
                 if result.returncode == 0 and result.stdout.strip():
-                    return result.stdout.strip()
+                    return result.stdout.strip(), "openai"
             except (subprocess.TimeoutExpired, subprocess.SubprocessError):
                 pass
 
@@ -129,7 +106,7 @@ def get_llm_completion_message():
                 timeout=LLM_TIMEOUT
                 )
                 if result.returncode == 0 and result.stdout.strip():
-                    return result.stdout.strip()
+                    return result.stdout.strip(), "anthropic"
             except (subprocess.TimeoutExpired, subprocess.SubprocessError):
                 pass
 
@@ -145,44 +122,82 @@ def get_llm_completion_message():
             timeout=LLM_TIMEOUT
             )
             if result.returncode == 0 and result.stdout.strip():
-                return result.stdout.strip()
+                return result.stdout.strip(), "ollama"
         except (subprocess.TimeoutExpired, subprocess.SubprocessError):
             pass
-    
+
     # Fallback to random predefined message
     messages = get_completion_messages()
-    return random.choice(messages)
+    return random.choice(messages), "fallback"
+
+def get_llm_completion_message():
+    """
+    Generate completion message using available LLM services.
+    Priority order: OpenAI > Anthropic > Ollama > fallback to random message
+
+    Returns:
+        str: Generated or fallback completion message
+    """
+    message, _ = get_llm_completion_message_with_backend()
+    return message
 
 def announce_completion():
-    """Announce completion using the best available TTS service."""
+    """Announce completion using the best available TTS service. Returns metadata dict."""
+    metadata = {
+        "tts_triggered": False,
+        "message": None,
+        "llm_generated": False,
+        "llm_backend": None,
+        "error": None
+    }
+
     try:
         tts_script = get_tts_script_path()
         if not tts_script:
-            return  # No TTS scripts available
+            metadata["error"] = "No TTS script available"
+            return metadata
 
         # 5% chance to generate original LLM message, 95% use cached
-        if random.random() < 0.05:
+        use_llm = random.random() < 0.05
+        if use_llm:
             # Try LLM-generated message
-            completion_message = get_llm_completion_message()
+            completion_message, llm_backend = get_llm_completion_message_with_backend()
+            metadata["llm_generated"] = True
+            metadata["llm_backend"] = llm_backend
         else:
             # Use cached message
             messages = get_completion_messages()
             completion_message = random.choice(messages)
-        
-        # Call the TTS script with the completion message
-        subprocess.run([
-            "python3", tts_script, completion_message
+            metadata["llm_generated"] = False
+
+        metadata["message"] = completion_message
+        metadata["tts_triggered"] = True
+
+        # Call the TTS script with the completion message and capture metadata
+        result = subprocess.run([
+            "python3", tts_script, completion_message, "--json"
         ],
-        capture_output=True,  # Suppress output
-        timeout=10  # 10-second timeout
+        capture_output=True,
+        text=True,
+        timeout=10
         )
-        
-    except (subprocess.TimeoutExpired, subprocess.SubprocessError, FileNotFoundError):
-        # Fail silently if TTS encounters issues
-        pass
-    except Exception:
-        # Fail silently for any other errors
-        pass
+
+        # Parse TTS backend metadata if available
+        if result.returncode == 0 and result.stdout.strip():
+            try:
+                tts_details = json.loads(result.stdout.strip())
+                metadata.update(tts_details)
+            except json.JSONDecodeError:
+                metadata["error"] = "Failed to parse TTS metadata"
+
+    except subprocess.TimeoutExpired:
+        metadata["error"] = "TTS timeout"
+    except (subprocess.SubprocessError, FileNotFoundError) as e:
+        metadata["error"] = f"TTS subprocess error: {type(e).__name__}"
+    except Exception as e:
+        metadata["error"] = f"Unexpected error: {type(e).__name__}"
+
+    return metadata
 
 
 def main():
@@ -200,10 +215,11 @@ def main():
         session_id = input_data.get("session_id", "")
         stop_hook_active = input_data.get("stop_hook_active", False)
 
-        # Ensure log directory exists
-        log_dir = os.path.join(os.getcwd(), "logs")
-        os.makedirs(log_dir, exist_ok=True)
-        log_path = os.path.join(log_dir, "stop.json")
+        # Ensure log directory exists relative to this script
+        script_dir = Path(__file__).parent
+        log_dir = script_dir / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_path = log_dir / "stop.json"
 
         # Read existing log data or initialize empty list
         if os.path.exists(log_path):
@@ -214,14 +230,21 @@ def main():
                     log_data = []
         else:
             log_data = []
-        
-        # Append new data
+
+        # Append new data with timestamp
+        input_data['timestamp'] = datetime.now().isoformat()
+
+        # Handle --notify flag - announce completion and capture metadata
+        if args.notify:
+            completion_metadata = announce_completion()
+            input_data['tts_metadata'] = completion_metadata
+
         log_data.append(input_data)
-        
+
         # Write back to file with formatting
         with open(log_path, 'w') as f:
             json.dump(log_data, f, indent=2)
-        
+
         # Handle --chat switch
         if args.chat and 'transcript_path' in input_data:
             transcript_path = input_data['transcript_path']
@@ -237,17 +260,13 @@ def main():
                                     chat_data.append(json.loads(line))
                                 except json.JSONDecodeError:
                                     pass  # Skip invalid lines
-                    
-                    # Write to logs/chat.json
-                    chat_file = os.path.join(log_dir, 'chat.json')
+
+                    # Write to hooks/logs/chat.json
+                    chat_file = log_dir / 'chat.json'
                     with open(chat_file, 'w') as f:
                         json.dump(chat_data, f, indent=2)
                 except Exception:
                     pass  # Fail silently
-
-        # Announce completion via TTS (only if --notify flag is set)
-        if args.notify:
-            announce_completion()
 
         sys.exit(0)
 

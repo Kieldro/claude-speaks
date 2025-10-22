@@ -14,8 +14,7 @@ env/
 ENV/
 .venv
 
-# TTS Cache - audio files can be regenerated
-utils/tts/cache/*.mp3
+# TTS Cache - removed from gitignore to version control cached audio
 
 # IDE
 .vscode/
