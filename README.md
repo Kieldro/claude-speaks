@@ -73,9 +73,11 @@ OPENAI_API_KEY=sk-...
 ELEVENLABS_API_KEY=...
 
 # Optional: Choose ElevenLabs voice (requires ELEVENLABS_API_KEY)
+# Available voices:
 # ELEVENLABS_VOICE_ID=21m00Tcm4TlvDq8ikWAM  # Rachel - Professional female (default)
-# ELEVENLABS_VOICE_ID=goT3UYdM9bhm0n2lmKQx  # Edward - British, Dark, Seductive, Low
-# ELEVENLABS_VOICE_ID=ZF6FPAbjXT4488VcRRnw  # Amelia - British
+# ELEVENLABS_VOICE_ID=goT3UYdM9bhm0n2lmKQx  # Edward - British, Dark, Low
+# ELEVENLABS_VOICE_ID=FGY2WhTYpPnrIDTdsKH5  # Laura - Sunny
+# ELEVENLABS_VOICE_ID=JBFqnCBsd6RMkjVDRZzb  # George - Hari Seldon-like
 
 # Optional: Customize your name in notifications
 # ENGINEER_NAME=YourName  # Falls back to $USER if not set

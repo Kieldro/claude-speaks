@@ -9,6 +9,7 @@
 
 import os
 import sys
+from pathlib import Path
 from dotenv import load_dotenv
 
 
@@ -22,7 +23,7 @@ def prompt_llm(prompt_text):
     Returns:
         str: The model's response text, or None if error
     """
-    load_dotenv()
+    load_dotenv(Path.home() / '.env')
 
     api_key = os.getenv("ANTHROPIC_API_KEY")
     if not api_key:

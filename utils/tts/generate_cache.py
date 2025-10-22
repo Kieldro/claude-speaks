@@ -9,50 +9,12 @@ import sys
 import subprocess
 from pathlib import Path
 
-# Add parent directory to path to import cached_tts
+# Add parent directory to path to import modules
 sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 from cached_tts import speak_with_cache, get_cached_audio_path
-
-
-def get_all_messages():
-    """Return all static messages used in Claude hooks."""
-    messages = []
-
-    # Messages from notification.py
-    messages.append("Your agent needs your input")
-
-    # Messages from stop.py (completion messages)
-    messages.extend([
-        "Work complete!",
-        "All done!",
-        "Task finished!",
-        "Job complete!",
-        "Ready for next task!",
-        "Mission accomplished!",
-        "Task complete!",
-        "Finished successfully!",
-        "All set!",
-        "Done and dusted!",
-        "Wrapped up!",
-        "Job well done!",
-        "That's a wrap!",
-        "Successfully completed!",
-        "All finished!",
-        "Task accomplished!",
-        "Good to go!",
-        "Completed successfully!",
-        "Everything's done!",
-        "Ready when you are!"
-    ])
-
-    # Get engineer name if available for personalized message, fallback to USER
-    engineer_name = os.getenv('ENGINEER_NAME', '').strip()
-    if not engineer_name:
-        engineer_name = os.getenv('USER', '').strip()
-    if engineer_name:
-        messages.append(f"{engineer_name}, your agent needs your input")
-
-    return messages
+from messages import get_all_messages
 
 
 def main():
@@ -79,7 +41,8 @@ def main():
         print(f"[{i}/{len(messages)}] 🔊 Generating: {message}")
 
         # Generate and cache
-        if speak_with_cache(message):
+        result = speak_with_cache(message)
+        if result and result.get("tts_backend"):
             # Verify cache was created
             if cached_path.exists():
                 size_kb = cached_path.stat().st_size / 1024

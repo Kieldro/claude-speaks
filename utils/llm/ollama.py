@@ -11,6 +11,7 @@
 import os
 import sys
 import traceback
+from pathlib import Path
 from dotenv import load_dotenv
 
 
@@ -24,7 +25,7 @@ def prompt_llm(prompt_text):
     Returns:
         str: The model's response text, or None if error
     """
-    load_dotenv()
+    load_dotenv(Path.home() / '.env')
 
     try:
         from openai import OpenAI
