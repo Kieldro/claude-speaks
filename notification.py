@@ -16,7 +16,7 @@ from pathlib import Path
 
 try:
     from dotenv import load_dotenv
-    load_dotenv()
+    load_dotenv(Path.home() / '.env')
 except ImportError:
     pass  # dotenv is optional
 

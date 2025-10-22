@@ -1,4 +1,11 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.11"
+# dependencies = [
+#     "python-dotenv",
+#     "requests",
+# ]
+# ///
 """
 Cached TTS Wrapper
 Checks for cached audio files before generating new ones to save API costs and latency.
@@ -12,7 +19,7 @@ from pathlib import Path
 
 try:
     from dotenv import load_dotenv
-    load_dotenv()
+    load_dotenv(Path.home() / '.env')
 except ImportError:
     pass
 
