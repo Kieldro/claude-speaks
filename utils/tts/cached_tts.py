@@ -51,25 +51,34 @@ def get_cached_audio_path(text):
 
 
 def play_audio(audio_file):
-    """Play audio file using available system player."""
+    """Play audio file using available system player (non-blocking)."""
     try:
-        # macOS
-        subprocess.run(['afplay', str(audio_file)], check=True, timeout=10)
+        # macOS - spawn in background to avoid blocking
+        subprocess.Popen(
+            ['afplay', str(audio_file)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
         return True
-    except (FileNotFoundError, subprocess.SubprocessError):
+    except FileNotFoundError:
         try:
             # Linux with mpg123 (best for MP3)
-            subprocess.run(['mpg123', '-q', str(audio_file)], check=True, timeout=10)
+            subprocess.Popen(
+                ['mpg123', '-q', str(audio_file)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
             return True
-        except (FileNotFoundError, subprocess.SubprocessError):
+        except FileNotFoundError:
             try:
                 # Linux with ffplay (fallback)
-                subprocess.run(['ffplay', '-nodisp', '-autoexit', '-loglevel', 'quiet', str(audio_file)],
-                             check=True, timeout=10,
-                             stdout=subprocess.DEVNULL,
-                             stderr=subprocess.DEVNULL)
+                subprocess.Popen(
+                    ['ffplay', '-nodisp', '-autoexit', '-loglevel', 'quiet', str(audio_file)],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL
+                )
                 return True
-            except (FileNotFoundError, subprocess.SubprocessError):
+            except FileNotFoundError:
                 return False
 
 
