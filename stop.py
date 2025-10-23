@@ -175,7 +175,7 @@ def announce_completion():
 
         # Call the TTS script with the completion message and capture metadata
         result = subprocess.run([
-            "python3", tts_script, completion_message, "--json"
+            sys.executable, tts_script, completion_message, "--json"
         ],
         capture_output=True,
         text=True,
