@@ -152,6 +152,7 @@ claude-hooks/
 ├── notification.py          # Notification hook (when Claude needs input)
 ├── stop.py                  # Stop hook (when tasks complete)
 ├── utils/
+│   ├── messages.py                 # Shared message definitions
 │   ├── tts/
 │   │   ├── cached_tts.py           # TTS caching wrapper
 │   │   ├── elevenlabs_tts.py       # ElevenLabs TTS

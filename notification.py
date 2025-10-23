@@ -88,7 +88,7 @@ def announce_notification():
 
         # Call the TTS script with the notification message and capture metadata
         result = subprocess.run([
-            "python3", tts_script, notification_message, "--json"
+            sys.executable, tts_script, notification_message, "--json"
         ],
         capture_output=True,
         text=True,
