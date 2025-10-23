@@ -27,8 +27,8 @@ python3 utils/tts/generate_cache.py
 ### Testing Hooks
 ```bash
 # Manual testing (daemon must be running)
-echo '{"message": "test"}' | python3 notification_fast.py
-echo '{"session_id": "123", "stop_hook_active": true}' | python3 stop_fast.py
+echo '{"message": "test"}' | python3 notification.py
+echo '{"session_id": "123", "stop_hook_active": true}' | python3 stop.py
 
 # Run test suite
 python3 test_hooks.py
@@ -39,13 +39,13 @@ python3 test_hooks.py
 ### Daemon-Based System
 To prevent Claude Code glitching, hooks use a **signal-based daemon architecture**:
 
-1. **Fast Hooks** (`notification_fast.py`, `stop_fast.py`) - Ultra-fast (<70ms), just touch signal files
+1. **Fast Hooks** (`notification.py`, `stop.py`) - Ultra-fast (<1ms), just touch signal files
 2. **TTS Daemon** (`tts_daemon.py`) - Always-running process that watches for signals and plays audio
 3. **Zero subprocess spawning** from hooks - prevents Claude Code from detecting child processes
 
 ### Scripts
-- `notification_fast.py` - Signals daemon when Claude needs input (replaces `notification.py`)
-- `stop_fast.py` - Signals daemon when task completes (replaces `stop.py`)
+- `notification.py` - Ultra-fast hook that signals daemon when Claude needs input (just touches signal file)
+- `stop.py` - Ultra-fast hook that signals daemon when task completes (just touches signal file)
 - `tts_daemon.py` - Background daemon that plays TTS on signal
 - `tts_daemon_control.sh` - Start/stop/restart daemon
 - `utils/messages.py` - Shared message definitions
@@ -66,7 +66,7 @@ utils/tts/cache/
 ```
 
 ### Key Behaviors
-- Hooks execute in <70ms (just touch signal files)
+- Hooks execute in <1ms (just touch signal files)
 - No subprocess spawning from hooks (prevents glitching)
 - Daemon watches signals every 100ms
 - All audio playback handled by daemon
@@ -88,7 +88,14 @@ utils/tts/cache/
 
 **Claude Code still glitching:**
 - The daemon approach eliminates glitching by avoiding subprocess spawning
-- If glitches occur, ensure you're using `notification_fast.py` and `stop_fast.py` (not the old versions)
+- If glitches occur, verify hooks are configured in `~/.claude/settings.json`:
+  ```json
+  "hooks": {
+    "Notification": [{"matcher": "", "hooks": [{"type": "command", "command": "python3 ~/.claude/hooks/notification.py --notify"}]}],
+    "Stop": [{"matcher": "", "hooks": [{"type": "command", "command": "python3 ~/.claude/hooks/stop.py --notify"}]}]
+  }
+  ```
+- Ensure symlinks exist: `ls -la ~/.claude/hooks/` should show `notification.py` and `stop.py` pointing to the repo
 
 ## Adding Messages
 

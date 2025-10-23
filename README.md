@@ -230,6 +230,13 @@ python3 ~/.claude/hooks/utils/tts/benchmark_cache.py
 - **API savings**: ~$0.0025 per cached message
 - **Speed improvement**: ~580ms faster (cache vs API)
 
+## Known Issues
+
+**Claude Code Infinite Loop:**
+- There's a known bug where hooks can cause Claude Code to enter an infinite loop
+- Tracked in: https://github.com/anthropics/claude-code/issues/10205
+- Workaround: Disable hooks if you experience looping behavior
+
 ## Troubleshooting
 
 **No audio playing:**
