@@ -6,7 +6,6 @@
 # ]
 # ///
 
-import argparse
 import json
 import os
 import sys
@@ -117,17 +116,12 @@ def announce_notification():
 
 def main():
     try:
-        # Parse command line arguments
-        parser = argparse.ArgumentParser()
-        parser.add_argument('--notify', action='store_true', help='Enable TTS notifications')
-        args = parser.parse_args()
-        
         # Read JSON input from stdin
         input_data = json.loads(sys.stdin.read())
 
-        # Announce notification via TTS only if --notify flag is set
+        # Announce notification via TTS
         # Skip TTS for the generic "Claude is waiting for your input" message
-        if args.notify and input_data.get('message') != 'Claude is waiting for your input':
+        if input_data.get('message') != 'Claude is waiting for your input':
             tts_metadata = announce_notification()
             input_data['tts_metadata'] = tts_metadata
 
@@ -142,15 +136,13 @@ def main():
         with open(log_file, 'a') as f:
             json.dump(input_data, f)
             f.write('\n')
-        
+
         sys.exit(0)
-        
+
     except json.JSONDecodeError:
-        # Handle JSON decode errors gracefully
-        sys.exit(0)
+        sys.exit(0)  # Fail gracefully on JSON errors
     except Exception:
-        # Handle any other errors gracefully
-        sys.exit(0)
+        sys.exit(0)  # Fail gracefully on any errors
 
 if __name__ == '__main__':
     main()

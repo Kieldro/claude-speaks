@@ -54,14 +54,14 @@ Add to `~/.claude/settings.json`:
       "matcher": "",
       "hooks": [{
         "type": "command",
-        "command": "python3 ~/.claude/hooks/notification.py --notify"
+        "command": "python3 ~/.claude/hooks/notification.py"
       }]
     }],
     "Stop": [{
       "matcher": "",
       "hooks": [{
         "type": "command",
-        "command": "python3 ~/.claude/hooks/stop.py --notify"
+        "command": "python3 ~/.claude/hooks/stop.py"
       }]
     }]
   }

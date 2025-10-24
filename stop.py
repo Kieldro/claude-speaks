@@ -6,7 +6,6 @@
 # ]
 # ///
 
-import argparse
 import json
 import os
 import sys
@@ -229,17 +228,11 @@ def append_log_entry(log_path, entry):
 
 def main():
     try:
-        # Parse command line arguments
-        parser = argparse.ArgumentParser()
-        parser.add_argument('--notify', action='store_true', help='Enable TTS completion announcement')
-        args = parser.parse_args()
-
         # Read JSON input from stdin
         input_data = json.load(sys.stdin)
 
-        # Announce completion via TTS if requested
-        if args.notify:
-            input_data['tts_metadata'] = announce_completion()
+        # Announce completion via TTS
+        input_data['tts_metadata'] = announce_completion()
 
         # Setup log directory and append entry
         script_dir = Path(__file__).parent

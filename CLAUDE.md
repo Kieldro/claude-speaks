@@ -12,8 +12,8 @@ python3 utils/tts/generate_cache.py
 ### Testing Hooks
 ```bash
 # Manual testing
-echo '{"message": "test"}' | python3 notification.py --notify
-echo '{"session_id": "123", "stop_hook_active": true}' | python3 stop.py --notify
+echo '{"message": "test"}' | python3 notification.py
+echo '{"session_id": "123", "stop_hook_active": true}' | python3 stop.py
 ```
 
 ## Architecture
@@ -64,8 +64,8 @@ utils/tts/cache/
 - Verify hooks are configured in `~/.claude/settings.json`:
   ```json
   "hooks": {
-    "Notification": [{"matcher": "", "hooks": [{"type": "command", "command": "python3 ~/.claude/hooks/notification.py --notify"}]}],
-    "Stop": [{"matcher": "", "hooks": [{"type": "command", "command": "python3 ~/.claude/hooks/stop.py --notify"}]}]
+    "Notification": [{"matcher": "", "hooks": [{"type": "command", "command": "python3 ~/.claude/hooks/notification.py"}]}],
+    "Stop": [{"matcher": "", "hooks": [{"type": "command", "command": "python3 ~/.claude/hooks/stop.py"}]}]
   }
   ```
 - Ensure symlinks exist: `ls -la ~/.claude/hooks/` should show `notification.py` and `stop.py` pointing to the repo
