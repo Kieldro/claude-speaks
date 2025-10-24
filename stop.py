@@ -129,8 +129,44 @@ def get_llm_completion_message():
     return message
 
 
-def select_completion_message():
+def get_session_identifier(session_id):
+    """Generate a short phonetic identifier from session ID.
+
+    Args:
+        session_id: Claude Code session ID
+
+    Returns:
+        str: Short phonetic identifier (e.g., "Alpha three")
+    """
+    if not session_id or session_id == "test":
+        return None
+
+    # NATO phonetic alphabet (single syllable preferred)
+    phonetics = [
+        "Alpha", "Bravo", "Charlie", "Delta", "Echo", "Foxtrot",
+        "Golf", "Hotel", "India", "Juliet", "Kilo", "Lima",
+        "Mike", "November", "Oscar", "Papa", "Quebec", "Romeo",
+        "Sierra", "Tango", "Uniform", "Victor", "Whiskey", "X-ray",
+        "Yankee", "Zulu"
+    ]
+
+    # Use hash of session_id for consistent mapping
+    import hashlib
+    hash_val = int(hashlib.md5(session_id.encode()).hexdigest()[:8], 16)
+
+    # Get phonetic and number (0-9)
+    phonetic = phonetics[hash_val % len(phonetics)]
+    number = (hash_val // len(phonetics)) % 10
+
+    return f"{phonetic} {number}"
+
+
+def select_completion_message(session_id=None, include_session_id=False):
     """Select a completion message (5% LLM-generated, 95% cached).
+
+    Args:
+        session_id: Optional Claude Code session ID for identification
+        include_session_id: If True, prepend session identifier to message
 
     Returns:
         tuple: (message: str, llm_generated: bool, backend: str)
@@ -143,6 +179,13 @@ def select_completion_message():
     else:
         messages = get_completion_messages()
         message = random.choice(messages)
+
+        # Add session identifier if enabled and available
+        if include_session_id and session_id:
+            identifier = get_session_identifier(session_id)
+            if identifier:
+                message = f"{identifier}: {message}"
+
         return message, False, None
 
 
@@ -172,8 +215,12 @@ def call_tts_script(tts_script, message):
     return {}
 
 
-def announce_completion():
+def announce_completion(session_id=None, include_session_id=False):
     """Announce completion using TTS with completion message.
+
+    Args:
+        session_id: Optional Claude Code session ID for identification
+        include_session_id: If True, prepend session identifier to message
 
     Returns:
         dict: Metadata about the announcement (message, backend, errors, etc.)
@@ -193,7 +240,7 @@ def announce_completion():
             return metadata
 
         # Select message (5% LLM, 95% cached)
-        message, llm_generated, llm_backend = select_completion_message()
+        message, llm_generated, llm_backend = select_completion_message(session_id, include_session_id)
 
         metadata["message"] = message
         metadata["llm_generated"] = llm_generated
@@ -231,8 +278,14 @@ def main():
         # Read JSON input from stdin
         input_data = json.load(sys.stdin)
 
-        # Announce completion via TTS
-        input_data['tts_metadata'] = announce_completion()
+        # Extract session_id if available
+        session_id = input_data.get('session_id')
+
+        # Check environment variable to enable session identifiers
+        include_session_id = os.getenv('CLAUDE_SESSION_ID_ENABLED', 'false').lower() in ('true', '1', 'yes')
+
+        # Announce completion via TTS with optional session identifier
+        input_data['tts_metadata'] = announce_completion(session_id, include_session_id)
 
         # Setup log directory and append entry
         script_dir = Path(__file__).parent
