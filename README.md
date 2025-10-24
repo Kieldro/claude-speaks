@@ -4,12 +4,12 @@ Custom notification and completion hooks for Claude Code with Text-to-Speech (TT
 
 ## Features
 
-- 🔔 **Smart Notifications**: Audio alerts when Claude needs your input
-- 🎵 **Pre-cached Voices**: 4 voices with 20+ messages ready to use (no API keys needed!)
-- 🎉 **Completion Messages**: Cached messages + optional LLM-generated unique messages
-- 🤖 **LLM Integration**: Optional unique messages via OpenAI/Anthropic/Ollama
-- ⚡ **Fast Fallback**: 2-second timeout, guaranteed cached fallback
-- 🗣️ **Multi-voice Support**: Rachel, Edward, Laura, George - switch anytime
+- Audio notifications when Claude needs input
+- Pre-cached MP3 files for 4 ElevenLabs voices (Rachel, Edward, Laura, George)
+- 20+ completion messages with optional LLM generation (5% frequency)
+- Multiple TTS fallbacks: ElevenLabs → OpenAI → system voice
+- 2-second LLM timeout with cached fallback
+- Optional session identifiers using NATO phonetic alphabet
 
 ## Requirements
 
@@ -74,10 +74,7 @@ Add to `~/.claude/settings.json`:
 python3 ~/repos/claude-speaks/utils/tts/system_voice_tts.py "Hello from Claude"
 ```
 
-**Basic setup complete!** The hooks work immediately with:
-- **4 pre-cached voices** (Rachel, Edward, Laura, George) - no API keys needed
-- **20+ completion messages** already cached as MP3 files
-- **System voice fallback** for any uncached messages
+The hooks will use pre-cached MP3 files if available, falling back to system voice otherwise. Pre-cached files are included for 4 ElevenLabs voices with 20+ messages.
 
 ### 5. Optional: Add API keys for custom voices or new messages
 
@@ -124,30 +121,29 @@ This generates cache files for your selected voice.
 ### Notification Hook
 
 Plays audio when Claude needs your input:
-- **70%**: "Your agent needs your input" (generic)
-- **30%**: "YourName, your agent needs your input" (personalized)
+- 70%: "Your agent needs your input" (generic)
+- 30%: "YourName, your agent needs your input" (personalized, if ENGINEER_NAME set)
 
 ### Stop Hook
 
 Plays audio when tasks complete:
-- **95%**: Random cached message (instant, free)
-- **5%**: LLM-generated unique message (~$0.001, requires API key)
-- **Optional**: Session identifiers (e.g., "Alpha 3: Task complete!") - enable with `CLAUDE_SESSION_ID_ENABLED=true`
+- 100%: Random cached message from pre-generated set
+- Optional: Session identifiers (e.g., "Alpha 3: Task complete!") with CLAUDE_SESSION_ID_ENABLED=true
 
-If LLM takes >2 seconds, automatically falls back to cached message.
+Note: LLM generation was removed in performance optimization to prevent hook delays that could trigger infinite loops.
 
 ### TTS Priority
 
-1. **ElevenLabs** (if `ELEVENLABS_API_KEY` set) - High quality, cacheable
-2. **OpenAI** (if `OPENAI_API_KEY` set) - Good quality, not cacheable
-3. **System voice** (spd-say/espeak) - Free fallback
+1. ElevenLabs (if ELEVENLABS_API_KEY set) - cacheable
+2. OpenAI (if OPENAI_API_KEY set) - not cacheable
+3. System voice (spd-say/espeak/say) - fallback
 
-### LLM Priority (for completion messages)
+### LLM Integration (Disabled)
 
-1. **OpenAI** (if `OPENAI_API_KEY` set)
-2. **Anthropic** (if `ANTHROPIC_API_KEY` set)
-3. **Ollama** (local LLM)
-4. **Cached messages** (guaranteed fallback)
+LLM-generated completion messages have been disabled for performance:
+- Previously caused 2+ second hook delays
+- Could trigger Claude Code infinite loop bug
+- All completion messages now use pre-cached set (20+ messages)
 
 ## File Structure
 
@@ -177,19 +173,12 @@ claude-hooks/
 
 ## Configuration
 
-### Adjust LLM Frequency
+### Re-enable LLM Generation (Not Recommended)
 
-Edit `stop.py` line 26:
+LLM generation is disabled for performance. To re-enable (may cause infinite loops):
 
-```python
-LLM_TIMEOUT = 2  # Seconds before fallback to cached
-```
-
-Edit `stop.py` line 160:
-
-```python
-if random.random() < 0.05:  # Change 0.05 to adjust percentage
-```
+1. Change `stop.py` line 215 from `select_completion_message_fast` to `select_completion_message`
+2. Adjust frequency at line 174: `if random.random() < 0.05:`
 
 ### Adjust Notification Personalization
 
@@ -229,17 +218,23 @@ python3 ~/.claude/hooks/utils/tts/benchmark_cache.py
 
 ## Cache Statistics
 
-- **Total messages**: 22 (1 notification generic + 1 personalized + 20 completion)
-- **Cache size**: ~420 KB
-- **API savings**: ~$0.0025 per cached message
-- **Speed improvement**: ~580ms faster (cache vs API)
+- Total messages: 22 (1 notification generic + 1 personalized + 20 completion)
+- Cache size: ~420 KB
+- Speed: ~580ms faster than API calls
 
-## Known Issues
+## Performance
 
-**Claude Code Infinite Loop:**
-- There's a known bug where hooks can cause Claude Code to enter an infinite loop
-- Tracked in: https://github.com/anthropics/claude-code/issues/10205
-- Workaround: Disable hooks if you experience looping behavior
+**Hook Execution Time:**
+- Hooks complete in ~166ms (fire-and-forget design)
+- TTS and audio playback happen in background process
+- File I/O logging disabled to prevent blocking
+- LLM generation removed (was causing 2+ second delays)
+
+**Infinite Loop Mitigation:**
+- Previous versions could trigger infinite loops due to slow hook execution
+- Current implementation uses non-blocking subprocess spawning
+- Hooks exit immediately after spawning TTS process
+- Issue: https://github.com/anthropics/claude-code/issues/10205
 
 ## Troubleshooting
 
@@ -247,10 +242,9 @@ python3 ~/.claude/hooks/utils/tts/benchmark_cache.py
 - Check audio players installed: `mpg123`, `ffplay`, or `afplay` (macOS)
 - Test TTS: `python3 ~/.claude/hooks/utils/tts/cached_tts.py "Test message"`
 
-**LLM messages not working:**
-- Verify API key: `echo $OPENAI_API_KEY`
-- Check API key in `~/.env` (hooks read from here, not `~/.bashrc`)
-- Test directly: `~/.claude/hooks/utils/llm/oai.py --completion`
+**Want different completion messages:**
+- Edit `utils/messages.py` to add/remove messages
+- Run `python3 utils/tts/generate_cache.py` to regenerate cache
 
 **Hooks not triggering:**
 - Verify `~/.claude/settings.json` configuration
@@ -259,15 +253,13 @@ python3 ~/.claude/hooks/utils/tts/benchmark_cache.py
 
 ## Cost Analysis
 
-**TTS Costs:**
-- ElevenLabs: ~$0.18 per 1000 characters
-- OpenAI: ~$0.015 per message
-- System voice: Free
-- Cached playback: Free (no API calls)
+**Runtime Costs:**
+- All messages use pre-cached MP3 files: Free
+- No API calls during normal operation: Free
 
-**LLM Costs (5% frequency):**
-- OpenAI GPT-4o-mini: ~$0.001 per completion message
-- Average cost per 100 completions: ~$0.05
+**One-time Setup Costs (optional):**
+- Generating cache with ElevenLabs: ~$0.18 per 1000 characters
+- Pre-cached voices included in repo (no setup cost)
 
 ## Contributing
 

@@ -57,7 +57,10 @@ def get_tts_script_path():
 
 
 def announce_notification():
-    """Announce that the agent needs user input. Returns TTS metadata dict."""
+    """Announce that the agent needs user input. Returns TTS metadata dict.
+
+    Fire-and-forget: Spawns TTS process in background and returns immediately.
+    """
     tts_metadata = {
         "tts_triggered": False,
         "message": None,
@@ -85,31 +88,16 @@ def announce_notification():
         tts_metadata["personalized"] = personalized
         tts_metadata["tts_triggered"] = True
 
-        # Call the TTS script with the notification message and capture metadata
-        result = subprocess.run([
-            sys.executable, tts_script, notification_message, "--json"
-        ],
-        capture_output=True,
-        text=True,
-        timeout=10
+        # Fire-and-forget: spawn TTS in background, don't wait for completion
+        subprocess.Popen(
+            [sys.executable, tts_script, notification_message],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True  # Detach from parent process
         )
 
-        # Parse TTS backend metadata if available
-        if result.returncode == 0 and result.stdout.strip():
-            try:
-                tts_details = json.loads(result.stdout.strip())
-                tts_metadata.update(tts_details)
-            except json.JSONDecodeError:
-                pass
-
-    except subprocess.TimeoutExpired:
-        tts_metadata["error"] = "TTS timeout"
-    except FileNotFoundError as e:
-        tts_metadata["error"] = f"TTS script not found: {type(e).__name__}"
-    except subprocess.SubprocessError as e:
-        tts_metadata["error"] = f"TTS subprocess error: {type(e).__name__}"
-    except Exception as e:
-        tts_metadata["error"] = f"Unexpected error: {type(e).__name__}"
+    except (FileNotFoundError, subprocess.SubprocessError, Exception) as e:
+        tts_metadata["error"] = f"TTS spawn error: {type(e).__name__}"
 
     return tts_metadata
 
@@ -122,20 +110,20 @@ def main():
         # Announce notification via TTS
         # Skip TTS for the generic "Claude is waiting for your input" message
         if input_data.get('message') != 'Claude is waiting for your input':
-            tts_metadata = announce_notification()
-            input_data['tts_metadata'] = tts_metadata
+            announce_notification()
+            # tts_metadata removed from input_data to avoid slowing down hook
 
-        # Setup log directory and append entry
-        script_dir = Path(__file__).parent
-        log_dir = script_dir / 'logs'
-        log_dir.mkdir(parents=True, exist_ok=True)
-        log_file = log_dir / 'notification.jsonl'
-
-        input_data['timestamp'] = datetime.now().isoformat()
-
-        with open(log_file, 'a') as f:
-            json.dump(input_data, f)
-            f.write('\n')
+        # Logging commented out for performance - file I/O blocks hook completion
+        # script_dir = Path(__file__).parent
+        # log_dir = script_dir / 'logs'
+        # log_dir.mkdir(parents=True, exist_ok=True)
+        # log_file = log_dir / 'notification.jsonl'
+        #
+        # input_data['timestamp'] = datetime.now().isoformat()
+        #
+        # with open(log_file, 'a') as f:
+        #     json.dump(input_data, f)
+        #     f.write('\n')
 
         sys.exit(0)
 
