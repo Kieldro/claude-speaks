@@ -56,7 +56,45 @@ def get_completion_messages():
         "Good to go!",
         "Completed successfully!",
         "Everything's done!",
-        "Ready when you are!"
+        "Ready when you are!",
+        "Done!",
+        "Nailed it!",
+        "Crushed it!",
+        "Finished!",
+        "Complete!",
+        "All clear!",
+        "Job's done!",
+        "That'll do it!",
+        "Sorted!",
+        "Handled!",
+        "Locked in!",
+        "Mission complete!",
+        "Task done!",
+        "Boom! Done!",
+        "Check!",
+        "Got it done!",
+        "Wrapped!",
+        "Delivered!",
+        "Signed, sealed, delivered!",
+        # Portal/GLaDOS
+        "The test is complete. You will be baked, and then there will be cake.",
+        "Well done. The Enrichment Center reminds you that the task is complete.",
+        "The task is finished. Any contact with the chamber floor will result in an unsatisfactory mark on your official testing record, followed by death.",
+        # Metal Gear
+        "Mission complete! Awaiting orders.",
+        # Classic Gaming
+        "All your tasks are belong to us—completed!",
+        # Hitchhiker's Guide
+        "The answer is 42. The task? Completed!",
+        # Movie Classics
+        "Groovy, baby! Mission accomplished!",
+        "As you wish. Task completed!",
+        "Hello. My name is Claude Code. You gave me a task. Prepare to... see it completed!",
+        "What is this? A task for ants? It's completed now!",
+        "I'm kind of a big deal. This task is complete!",
+        "Hasta la vista, baby! Task terminated!",
+        # Taulia
+        "We get shit done!"
     ]
 
 
