@@ -125,36 +125,23 @@ def main():
         # Read JSON input from stdin
         input_data = json.loads(sys.stdin.read())
 
-        # Ensure log directory exists relative to this script
-        script_dir = Path(__file__).parent
-        log_dir = script_dir / 'logs'
-        log_dir.mkdir(parents=True, exist_ok=True)
-        log_file = log_dir / 'notification.json'
-        
-        # Read existing log data or initialize empty list
-        if os.path.exists(log_file):
-            with open(log_file, 'r') as f:
-                try:
-                    log_data = json.load(f)
-                except (json.JSONDecodeError, ValueError):
-                    log_data = []
-        else:
-            log_data = []
-
-        # Append new data with timestamp
-        input_data['timestamp'] = datetime.now().isoformat()
-
         # Announce notification via TTS only if --notify flag is set
         # Skip TTS for the generic "Claude is waiting for your input" message
         if args.notify and input_data.get('message') != 'Claude is waiting for your input':
             tts_metadata = announce_notification()
             input_data['tts_metadata'] = tts_metadata
 
-        log_data.append(input_data)
+        # Setup log directory and append entry
+        script_dir = Path(__file__).parent
+        log_dir = script_dir / 'logs'
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_file = log_dir / 'notification.jsonl'
 
-        # Write back to file with formatting
-        with open(log_file, 'w') as f:
-            json.dump(log_data, f, indent=2)
+        input_data['timestamp'] = datetime.now().isoformat()
+
+        with open(log_file, 'a') as f:
+            json.dump(input_data, f)
+            f.write('\n')
         
         sys.exit(0)
         

@@ -77,8 +77,8 @@ def speak(text):
             # Clean up temp file
             try:
                 os.unlink(audio_file)
-            except:
-                pass
+            except OSError:
+                pass  # File cleanup failure is non-critical
 
             return True
         else:
