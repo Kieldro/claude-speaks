@@ -206,7 +206,7 @@ def speak_with_cache(text, verbose=False):
             subprocess.run(
                 [sys.executable, tts_script, text],
                 capture_output=True,
-                timeout=10
+                timeout=2
             )
             return result
         except (subprocess.TimeoutExpired, subprocess.SubprocessError):

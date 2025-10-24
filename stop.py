@@ -161,8 +161,10 @@ def get_session_identifier(session_id):
     return f"{phonetic} {number}"
 
 
-def select_completion_message(session_id=None, include_session_id=False):
-    """Select a completion message (5% LLM-generated, 95% cached).
+def select_completion_message_fast(session_id=None, include_session_id=False):
+    """Select a completion message instantly (always uses cached messages).
+
+    For performance, always uses cached messages. LLM generation would block the hook.
 
     Args:
         session_id: Optional Claude Code session ID for identification
@@ -171,52 +173,22 @@ def select_completion_message(session_id=None, include_session_id=False):
     Returns:
         tuple: (message: str, llm_generated: bool, backend: str)
     """
-    use_llm = random.random() < 0.05
+    messages = get_completion_messages()
+    message = random.choice(messages)
 
-    if use_llm:
-        message, backend = get_llm_completion_message_with_backend()
-        return message, True, backend
-    else:
-        messages = get_completion_messages()
-        message = random.choice(messages)
+    # Add session identifier if enabled and available
+    if include_session_id and session_id:
+        identifier = get_session_identifier(session_id)
+        if identifier:
+            message = f"{identifier}: {message}"
 
-        # Add session identifier if enabled and available
-        if include_session_id and session_id:
-            identifier = get_session_identifier(session_id)
-            if identifier:
-                message = f"{identifier}: {message}"
-
-        return message, False, None
-
-
-def call_tts_script(tts_script, message):
-    """Call TTS script and parse response metadata.
-
-    Args:
-        tts_script: Path to TTS script
-        message: Text to speak
-
-    Returns:
-        dict: TTS metadata from script output
-    """
-    result = subprocess.run(
-        [sys.executable, tts_script, message, "--json"],
-        capture_output=True,
-        text=True,
-        timeout=10
-    )
-
-    if result.returncode == 0 and result.stdout.strip():
-        try:
-            return json.loads(result.stdout.strip())
-        except json.JSONDecodeError:
-            return {"error": "Failed to parse TTS metadata"}
-
-    return {}
+    return message, False, None
 
 
 def announce_completion(session_id=None, include_session_id=False):
     """Announce completion using TTS with completion message.
+
+    Fire-and-forget: Spawns TTS process in background and returns immediately.
 
     Args:
         session_id: Optional Claude Code session ID for identification
@@ -239,24 +211,24 @@ def announce_completion(session_id=None, include_session_id=False):
             metadata["error"] = "No TTS script available"
             return metadata
 
-        # Select message (5% LLM, 95% cached)
-        message, llm_generated, llm_backend = select_completion_message(session_id, include_session_id)
+        # Select message (always cached for speed)
+        message, llm_generated, llm_backend = select_completion_message_fast(session_id, include_session_id)
 
         metadata["message"] = message
         metadata["llm_generated"] = llm_generated
         metadata["llm_backend"] = llm_backend
         metadata["tts_triggered"] = True
 
-        # Call TTS and merge response metadata
-        tts_details = call_tts_script(tts_script, message)
-        metadata.update(tts_details)
+        # Fire-and-forget: spawn TTS in background, don't wait for completion
+        subprocess.Popen(
+            [sys.executable, tts_script, message],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True  # Detach from parent process
+        )
 
-    except subprocess.TimeoutExpired:
-        metadata["error"] = "TTS timeout"
-    except (subprocess.SubprocessError, FileNotFoundError) as e:
-        metadata["error"] = f"TTS subprocess error: {type(e).__name__}"
-    except Exception as e:
-        metadata["error"] = f"Unexpected error: {type(e).__name__}"
+    except (subprocess.SubprocessError, FileNotFoundError, Exception) as e:
+        metadata["error"] = f"TTS spawn error: {type(e).__name__}"
 
     return metadata
 
@@ -285,16 +257,16 @@ def main():
         include_session_id = os.getenv('CLAUDE_SESSION_ID_ENABLED', 'false').lower() in ('true', '1', 'yes')
 
         # Announce completion via TTS with optional session identifier
-        input_data['tts_metadata'] = announce_completion(session_id, include_session_id)
+        announce_completion(session_id, include_session_id)
 
-        # Setup log directory and append entry
-        script_dir = Path(__file__).parent
-        log_dir = script_dir / "logs"
-        log_dir.mkdir(parents=True, exist_ok=True)
-        log_path = log_dir / "stop.jsonl"
-
-        input_data['timestamp'] = datetime.now().isoformat()
-        append_log_entry(log_path, input_data)
+        # Logging commented out for performance - file I/O blocks hook completion
+        # script_dir = Path(__file__).parent
+        # log_dir = script_dir / "logs"
+        # log_dir.mkdir(parents=True, exist_ok=True)
+        # log_path = log_dir / "stop.jsonl"
+        #
+        # input_data['timestamp'] = datetime.now().isoformat()
+        # append_log_entry(log_path, input_data)
 
         sys.exit(0)
 
