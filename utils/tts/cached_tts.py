@@ -201,7 +201,7 @@ def speak_with_cache(text, verbose=False):
         result["tts_backend"] = Path(tts_script).stem
         try:
             subprocess.run(
-                ['python3', tts_script, text],
+                [sys.executable, tts_script, text],
                 capture_output=True,
                 timeout=10
             )

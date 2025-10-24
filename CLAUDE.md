@@ -2,21 +2,6 @@
 
 ## Quick Reference
 
-### TTS Daemon Management
-```bash
-# Start daemon (required for hooks to play audio)
-./tts_daemon_control.sh start
-
-# Check daemon status
-./tts_daemon_control.sh status
-
-# Stop daemon
-./tts_daemon_control.sh stop
-
-# Restart daemon
-./tts_daemon_control.sh restart
-```
-
 ### Testing TTS
 ```bash
 python3 utils/tts/cached_tts.py "Test"
@@ -26,34 +11,29 @@ python3 utils/tts/generate_cache.py
 
 ### Testing Hooks
 ```bash
-# Manual testing (daemon must be running)
-echo '{"message": "test"}' | python3 notification.py
-echo '{"session_id": "123", "stop_hook_active": true}' | python3 stop.py
-
-# Run test suite
-python3 test_hooks.py
+# Manual testing
+echo '{"message": "test"}' | python3 notification.py --notify
+echo '{"session_id": "123", "stop_hook_active": true}' | python3 stop.py --notify
 ```
 
 ## Architecture
 
-### Daemon-Based System
-To prevent Claude Code glitching, hooks use a **signal-based daemon architecture**:
+### Direct TTS Approach
+Hooks call TTS scripts directly with subprocess, using smart caching for performance:
 
-1. **Fast Hooks** (`notification.py`, `stop.py`) - Ultra-fast (<1ms), just touch signal files
-2. **TTS Daemon** (`tts_daemon.py`) - Always-running process that watches for signals and plays audio
-3. **Zero subprocess spawning** from hooks - prevents Claude Code from detecting child processes
+1. **Hook Scripts** (`notification.py`, `stop.py`) - Read stdin, call TTS, log to `.jsonl`
+2. **TTS Caching** (`cached_tts.py`) - MD5-based cache, fallback chain (cache → ElevenLabs → OpenAI → system voice)
+3. **LLM Integration** (`utils/llm/`) - Optional dynamic messages (5% frequency, 2s timeout, cached fallback)
 
 ### Scripts
-- `notification.py` - Ultra-fast hook that signals daemon when Claude needs input (just touches signal file)
-- `stop.py` - Ultra-fast hook that signals daemon when task completes (just touches signal file)
-- `tts_daemon.py` - Background daemon that plays TTS on signal
-- `tts_daemon_control.sh` - Start/stop/restart daemon
-- `utils/messages.py` - Shared message definitions
+- `notification.py` - Plays "your agent needs input" when Claude needs input
+- `stop.py` - Plays random completion message when task completes
+- `utils/messages.py` - Shared message definitions (20+ completion messages)
 - `utils/tts/cached_tts.py` - Cache-aware TTS wrapper
 - `utils/tts/generate_cache.py` - Pre-generate cache for all messages
-
-### Diagnostic Tools
-- `test_hooks.py` - Comprehensive test suite for hook functionality
+- `utils/tts/elevenlabs_tts.py` - ElevenLabs API client
+- `utils/tts/openai_tts.py` - OpenAI TTS client
+- `utils/tts/system_voice_tts.py` - Free system voice fallback
 
 ### Cache Structure
 ```
@@ -66,29 +46,22 @@ utils/tts/cache/
 ```
 
 ### Key Behaviors
-- Hooks execute in <1ms (just touch signal files)
-- No subprocess spawning from hooks (prevents glitching)
-- Daemon watches signals every 100ms
-- All audio playback handled by daemon
+- Hooks use subprocess to call TTS scripts
+- Logging uses efficient append-only `.jsonl` format
 - 30% chance of personalized notification
+- 5% chance of LLM-generated completion message (95% use cached)
 - Voice ID from `$ELEVENLABS_VOICE_ID` environment variable
+- 2-second LLM timeout with guaranteed cached fallback
 
 ### Troubleshooting
 
-**Daemon not running:**
-```bash
-./tts_daemon_control.sh status  # Check if daemon is running
-./tts_daemon_control.sh start   # Start if not running
-```
-
 **No audio playing:**
-1. Check daemon status: `./tts_daemon_control.sh status`
-2. Verify cache exists: `ls -la utils/tts/cache/goT3UYdM9bhm0n2lmKQx/`
-3. Regenerate cache: `python3 utils/tts/generate_cache.py`
+1. Verify cache exists: `ls -la utils/tts/cache/goT3UYdM9bhm0n2lmKQx/`
+2. Regenerate cache: `python3 utils/tts/generate_cache.py`
+3. Test TTS directly: `python3 utils/tts/cached_tts.py "Test"`
 
-**Claude Code still glitching:**
-- The daemon approach eliminates glitching by avoiding subprocess spawning
-- If glitches occur, verify hooks are configured in `~/.claude/settings.json`:
+**Hooks not working:**
+- Verify hooks are configured in `~/.claude/settings.json`:
   ```json
   "hooks": {
     "Notification": [{"matcher": "", "hooks": [{"type": "command", "command": "python3 ~/.claude/hooks/notification.py --notify"}]}],
