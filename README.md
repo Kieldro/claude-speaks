@@ -101,6 +101,9 @@ ELEVENLABS_API_KEY=...
 
 # Optional: Customize your name in notifications
 # ENGINEER_NAME=YourName  # Falls back to $USER if not set
+
+# Optional: Enable session identifiers in completion messages
+# CLAUDE_SESSION_ID_ENABLED=true  # Adds "Alpha 3: Task complete!" style prefixes
 ```
 
 ### 6. Optional: Generate cache for new voices
@@ -129,6 +132,7 @@ Plays audio when Claude needs your input:
 Plays audio when tasks complete:
 - **95%**: Random cached message (instant, free)
 - **5%**: LLM-generated unique message (~$0.001, requires API key)
+- **Optional**: Session identifiers (e.g., "Alpha 3: Task complete!") - enable with `CLAUDE_SESSION_ID_ENABLED=true`
 
 If LLM takes >2 seconds, automatically falls back to cached message.
 

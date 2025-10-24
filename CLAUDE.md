@@ -13,7 +13,11 @@ python3 utils/tts/generate_cache.py
 ```bash
 # Manual testing
 echo '{"message": "test"}' | python3 notification.py
-echo '{"session_id": "123", "stop_hook_active": true}' | python3 stop.py
+echo '{"session_id": "abc123"}' | python3 stop.py  # Default: "Task complete!"
+
+# With session identifiers enabled
+export CLAUDE_SESSION_ID_ENABLED=true
+echo '{"session_id": "abc123"}' | python3 stop.py  # "Papa 0: Job complete!"
 ```
 
 ## Architecture
@@ -27,7 +31,7 @@ Hooks call TTS scripts directly with subprocess, using smart caching for perform
 
 ### Scripts
 - `notification.py` - Plays "your agent needs input" when Claude needs input
-- `stop.py` - Plays random completion message when task completes
+- `stop.py` - Plays completion message, optionally with session identifier (e.g., "Charlie 1: Task complete!")
 - `utils/messages.py` - Shared message definitions (20+ completion messages)
 - `utils/tts/cached_tts.py` - Cache-aware TTS wrapper
 - `utils/tts/generate_cache.py` - Pre-generate cache for all messages
@@ -49,6 +53,10 @@ utils/tts/cache/
 - Hooks use subprocess to call TTS scripts
 - Logging uses efficient append-only `.jsonl` format
 - 30% chance of personalized notification
+- **Session identifiers (opt-in)**: Set `CLAUDE_SESSION_ID_ENABLED=true` in `~/.env`
+  - Uses NATO phonetic alphabet + number (e.g., "Alpha 3", "Charlie 1")
+  - Each session gets consistent identifier via MD5 hash (4-6 syllables total)
+  - 260 unique combinations (low collision for <10 concurrent sessions)
 - 5% chance of LLM-generated completion message (95% use cached)
 - Voice ID from `$ELEVENLABS_VOICE_ID` environment variable
 - 2-second LLM timeout with guaranteed cached fallback
