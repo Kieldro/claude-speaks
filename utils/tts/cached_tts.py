@@ -23,6 +23,9 @@ try:
 except ImportError:
     pass
 
+# Default voice ID (Edward from ElevenLabs)
+DEFAULT_VOICE_ID = 'goT3UYdM9bhm0n2lmKQx'
+
 
 def get_cache_dir():
     """Get the cache directory path for the current voice."""
@@ -30,7 +33,7 @@ def get_cache_dir():
     base_cache_dir = script_dir / "cache"
 
     # Get voice ID from environment or use default
-    voice_id = os.getenv('ELEVENLABS_VOICE_ID', '21m00Tcm4TlvDq8ikWAM')
+    voice_id = os.getenv('ELEVENLABS_VOICE_ID', DEFAULT_VOICE_ID)
 
     # Create voice-specific subdirectory
     voice_cache_dir = base_cache_dir / voice_id
@@ -121,9 +124,9 @@ def generate_and_cache_audio(text, audio_path):
     try:
         import requests
 
-        # Get voice ID from environment variable or use default (Rachel)
+        # Get voice ID from environment variable or use default
         # See README.md for available voice IDs
-        voice_id = os.getenv('ELEVENLABS_VOICE_ID', '21m00Tcm4TlvDq8ikWAM')
+        voice_id = os.getenv('ELEVENLABS_VOICE_ID', DEFAULT_VOICE_ID)
         url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
 
         headers = {
@@ -186,7 +189,7 @@ def speak_with_cache(text, verbose=False):
 
     # Check if we can cache (ElevenLabs only)
     if os.getenv('ELEVENLABS_API_KEY'):
-        voice_id = os.getenv('ELEVENLABS_VOICE_ID', '21m00Tcm4TlvDq8ikWAM')
+        voice_id = os.getenv('ELEVENLABS_VOICE_ID', DEFAULT_VOICE_ID)
         result["tts_backend"] = "elevenlabs"
         result["voice_id"] = voice_id
         # Generate and cache audio
