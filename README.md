@@ -218,9 +218,10 @@ python3 ~/.claude/hooks/utils/tts/benchmark_cache.py
 
 ## Cache Statistics
 
-- Total messages: 22 (1 notification generic + 1 personalized + 20 completion)
-- Cache size: ~420 KB
+- Total messages: 54 (1 notification generic + 1 personalized + 52 completion)
+- Cache size: ~1.2 MB
 - Speed: ~580ms faster than API calls
+- Includes: Portal/GLaDOS, Metal Gear, movie quotes, and more
 
 ## Performance
 
