@@ -14,7 +14,8 @@ env/
 ENV/
 .venv
 
-# TTS Cache - removed from gitignore to version control cached audio
+# TTS Cache
+utils/tts/cache/
 
 # IDE
 .vscode/
