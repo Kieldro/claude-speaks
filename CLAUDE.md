@@ -5,7 +5,8 @@
 ### Testing TTS
 ```bash
 python3 utils/tts/cached_tts.py "Test"
-python3 utils/tts/system_voice_tts.py "Test"
+python3 utils/tts/system_voice_tts.py "Test"  # Uses TTS_VOLUME env var (default: 0, range: -100 to +100)
+TTS_VOLUME=75 python3 utils/tts/system_voice_tts.py "Test with volume"
 python3 utils/tts/generate_cache.py
 ```
 
@@ -70,6 +71,7 @@ utils/tts/cache/
   - Speaks summary via system voice TTS (non-cached for immediate playback)
   - Summaries are dynamic and not cached to avoid delays
   - 10-second LLM timeout with guaranteed fallback
+  - Set `TTS_VOLUME=75` in `~/.env` for audible system voice (default: 0, range: -100 to +100)
 - 5% chance of LLM-generated completion message (95% use cached)
 - Voice ID from `$ELEVENLABS_VOICE_ID` environment variable
 
@@ -79,6 +81,14 @@ utils/tts/cache/
 1. Verify cache exists: `ls -la utils/tts/cache/goT3UYdM9bhm0n2lmKQx/`
 2. Regenerate cache: `python3 utils/tts/generate_cache.py`
 3. Test TTS directly: `python3 utils/tts/cached_tts.py "Test"`
+4. For system voice: Set `TTS_VOLUME=75` in `~/.env`
+
+**Response summary not working:**
+1. Enable debug logging: `echo "RESPONSE_SUMMARY_DEBUG=true" >> ~/.env`
+2. Stop a conversation to trigger the hook
+3. Check debug log: `tail -100 /tmp/response_summary_debug.log`
+4. Debug log shows the entire flow: hook trigger → transcript extraction → summarization → TTS spawn
+5. Disable debug logging: Set `RESPONSE_SUMMARY_DEBUG=false` in `~/.env`
 
 **Hooks not working:**
 - Verify hooks are configured in `~/.claude/settings.json`:

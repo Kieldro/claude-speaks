@@ -23,6 +23,26 @@ except ImportError:
 sys.path.insert(0, str(Path(__file__).parent / "utils"))
 from transcript import get_combined_response
 
+# Debug logging configuration
+DEBUG_ENABLED = os.getenv('RESPONSE_SUMMARY_DEBUG', 'false').lower() in ('true', '1', 'yes')
+DEBUG_LOG = Path('/tmp/response_summary_debug.log')
+
+def debug_log(message: str, data: dict = None):
+    """Log debug information if debugging is enabled."""
+    if not DEBUG_ENABLED:
+        return
+
+    try:
+        with open(DEBUG_LOG, 'a') as f:
+            timestamp = datetime.now().isoformat()
+            f.write(f"[{timestamp}] {message}\n")
+            if data:
+                for key, value in data.items():
+                    f.write(f"  {key}: {value}\n")
+            f.write("\n")
+    except Exception:
+        pass  # Fail silently on logging errors
+
 
 def get_tts_script_path():
     """
@@ -64,15 +84,22 @@ def summarize_and_announce(transcript_path: str):
     Returns:
         dict: Metadata about the operation
     """
+    debug_log("=== SUMMARIZE AND ANNOUNCE STARTED ===", {
+        "transcript_path": transcript_path,
+        "cwd": os.getcwd()
+    })
+
     # Play instant notification sound (non-blocking)
     try:
+        debug_log("Playing notification sound")
         subprocess.Popen(
             ['ffplay', '-nodisp', '-autoexit', '-loglevel', 'error', '-volume', '50', '/usr/share/sounds/Yaru/stereo/message.oga'],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL
         )
-    except:
-        pass  # Ignore if sound fails
+        debug_log("Notification sound spawned successfully")
+    except Exception as e:
+        debug_log("Notification sound failed", {"error": str(e)})
 
     metadata = {
         "tts_triggered": False,
@@ -84,27 +111,37 @@ def summarize_and_announce(transcript_path: str):
 
     try:
         # Extract Claude's latest response from transcript
+        debug_log("Extracting response from transcript")
         response_text = get_combined_response(transcript_path)
+        debug_log("Response extraction complete", {
+            "response_length": len(response_text) if response_text else 0,
+            "response_preview": response_text[:100] if response_text else "None"
+        })
 
         if not response_text:
+            debug_log("ERROR: No response found in transcript")
             metadata["error"] = "No response found in transcript"
             return metadata
 
         metadata["response_found"] = True
+        debug_log("Response found successfully")
 
         # Summarize the response
         llm_dir = Path(__file__).parent / "utils" / "llm"
         summarizer_script = llm_dir / "summarizer.py"
 
-        # Debug: log paths
-        with open('/tmp/response_summary_paths.txt', 'a') as f:
-            f.write(f"{datetime.now()}: __file__={__file__}\n")
-            f.write(f"  llm_dir={llm_dir}\n")
-            f.write(f"  summarizer_script={summarizer_script}\n")
-            f.write(f"  exists={summarizer_script.exists()}\n")
+        debug_log("Checking for summarizer script", {
+            "llm_dir": str(llm_dir),
+            "summarizer_script": str(summarizer_script),
+            "exists": summarizer_script.exists()
+        })
 
         if summarizer_script.exists():
             try:
+                debug_log("Calling LLM summarizer", {
+                    "timeout": 10,
+                    "response_preview": response_text[:100]
+                })
                 # Call summarizer with 10 second timeout (execute directly to use uv shebang)
                 result = subprocess.run(
                     [str(summarizer_script), response_text],
@@ -113,24 +150,24 @@ def summarize_and_announce(transcript_path: str):
                     timeout=10
                 )
 
-                # Log subprocess output for debugging
-                with open('/tmp/response_summary_subprocess.txt', 'a') as f:
-                    f.write(f"{datetime.now()}: returncode={result.returncode}\n")
-                    f.write(f"stdout: {result.stdout[:200]}\n")
-                    f.write(f"stderr: {result.stderr[:200]}\n")
+                debug_log("LLM summarizer completed", {
+                    "returncode": result.returncode,
+                    "stdout": result.stdout[:200],
+                    "stderr": result.stderr[:200]
+                })
 
                 if result.returncode == 0 and result.stdout.strip():
                     summary = result.stdout.strip()
                     metadata["summary"] = summary
                     metadata["summary_method"] = "llm"
+                    debug_log("Using LLM summary", {"summary": summary})
                 else:
                     # Fallback: use first 10 words
                     words = response_text.split()[:10]
                     summary = ' '.join(words)
                     metadata["summary"] = summary
                     metadata["summary_method"] = "simple_fallback"
-                    with open('/tmp/response_summary_subprocess.txt', 'a') as f:
-                        f.write(f"Using simple_fallback\n")
+                    debug_log("Using simple fallback (LLM failed)", {"summary": summary})
 
             except subprocess.TimeoutExpired as e:
                 # LLM timeout - use simple fallback
@@ -138,49 +175,68 @@ def summarize_and_announce(transcript_path: str):
                 summary = ' '.join(words)
                 metadata["summary"] = summary
                 metadata["summary_method"] = "timeout_fallback"
-                with open('/tmp/response_summary_subprocess.txt', 'a') as f:
-                    f.write(f"Timeout after 10s\n")
+                debug_log("Using timeout fallback", {"summary": summary})
         else:
             # No summarizer - use simple fallback
             words = response_text.split()[:10]
             summary = ' '.join(words)
             metadata["summary"] = summary
             metadata["summary_method"] = "no_summarizer"
+            debug_log("No summarizer script found, using fallback", {"summary": summary})
 
         # Speak the summary via TTS (detached process survives hook exit)
         tts_script = get_tts_script_path()
 
-        # Debug logging
-        with open('/tmp/response_summary_tts.txt', 'a') as f:
-            f.write(f"{datetime.now()}: tts_script={tts_script}, summary={summary[:50]}\n")
+        debug_log("Getting TTS script", {
+            "tts_script": str(tts_script) if tts_script else "None",
+            "summary": summary,
+            "TTS_VOLUME": os.getenv('TTS_VOLUME', 'not set')
+        })
 
         if tts_script and summary:
-            # Fully detach TTS process so it survives even if hook is killed
+            # Run TTS synchronously - system voice is fast enough
             try:
-                # Use nohup-style detachment
-                with open('/tmp/response_summary_tts.txt', 'a') as f:
-                    f.write(f"  Spawning: {sys.executable} {tts_script} {summary[:30]}\n")
+                debug_log("Running TTS synchronously", {
+                    "executable": sys.executable,
+                    "script": tts_script,
+                    "summary": summary
+                })
 
-                subprocess.Popen(
+                result = subprocess.run(
                     [sys.executable, tts_script, summary],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    stdin=subprocess.DEVNULL,
-                    start_new_session=True  # Completely detach from parent
+                    capture_output=True,
+                    timeout=5,
+                    env=os.environ.copy()  # Pass environment variables including TTS_VOLUME
                 )
                 metadata["tts_triggered"] = True
-
-                with open('/tmp/response_summary_tts.txt', 'a') as f:
-                    f.write(f"  TTS spawned successfully\n")
+                metadata["tts_returncode"] = result.returncode
+                debug_log("TTS completed", {
+                    "returncode": result.returncode,
+                    "stdout": result.stdout.decode() if result.stdout else "",
+                    "stderr": result.stderr.decode() if result.stderr else ""
+                })
+            except subprocess.TimeoutExpired:
+                metadata["tts_triggered"] = False
+                metadata["tts_error"] = "Timeout after 5s"
+                debug_log("ERROR: TTS timeout")
             except Exception as e:
                 metadata["tts_triggered"] = False
                 metadata["tts_error"] = str(e)
-                with open('/tmp/response_summary_tts.txt', 'a') as f:
-                    f.write(f"  ERROR: {e}\n")
+                debug_log("ERROR: TTS failed", {"error": str(e), "type": type(e).__name__})
+        else:
+            debug_log("Skipping TTS", {
+                "tts_script": "missing" if not tts_script else "present",
+                "summary": "missing" if not summary else "present"
+            })
 
     except Exception as e:
         metadata["error"] = f"{type(e).__name__}: {str(e)}"
+        debug_log("ERROR in summarize_and_announce", {
+            "error": str(e),
+            "type": type(e).__name__
+        })
 
+    debug_log("=== SUMMARIZE AND ANNOUNCE COMPLETE ===", metadata)
     return metadata
 
 
@@ -195,27 +251,38 @@ def append_log_entry(log_path: Path, data: dict):
 
 
 def main():
-    # Log that hook was triggered
-    with open('/tmp/response_summary_triggered.txt', 'a') as f:
-        f.write(f"{datetime.now()}: Hook triggered\n")
+    debug_log("### RESPONSE SUMMARY HOOK MAIN STARTED ###")
 
     try:
         # Read JSON input from stdin
+        debug_log("Reading JSON input from stdin")
         input_data = json.loads(sys.stdin.read())
+        debug_log("Input data received", {
+            "keys": list(input_data.keys()),
+            "transcript_path": input_data.get('transcript_path'),
+            "session_id": input_data.get('session_id')
+        })
 
         # Get transcript path from input
         transcript_path = input_data.get('transcript_path')
 
         if not transcript_path:
+            debug_log("No transcript path provided, exiting")
             sys.exit(0)  # No transcript path provided
 
         # Check if response summary is enabled (opt-in via env var)
         enabled = os.getenv('CLAUDE_RESPONSE_SUMMARY_ENABLED', 'false').lower() in ('true', '1', 'yes')
+        debug_log("Feature enabled check", {
+            "enabled": enabled,
+            "env_var": os.getenv('CLAUDE_RESPONSE_SUMMARY_ENABLED', 'not set')
+        })
 
         if not enabled:
+            debug_log("Feature disabled, exiting")
             sys.exit(0)  # Feature disabled
 
         # Summarize and announce the response
+        debug_log("Calling summarize_and_announce")
         metadata = summarize_and_announce(transcript_path)
 
         # Debug logging
@@ -228,10 +295,12 @@ def main():
         input_data['metadata'] = metadata
         append_log_entry(log_path, input_data)
 
+        debug_log("### RESPONSE SUMMARY HOOK MAIN COMPLETE ###")
         sys.exit(0)
 
     except json.JSONDecodeError as e:
         # Log JSON errors
+        debug_log("ERROR: JSON decode failed", {"error": str(e)})
         try:
             script_dir = Path(__file__).parent
             log_dir = script_dir / "logs"
@@ -250,11 +319,11 @@ def main():
         # Log all other errors
         import traceback
         error_msg = f"ERROR: {type(e).__name__}: {str(e)}\n{traceback.format_exc()}"
-        try:
-            with open('/tmp/response_summary_error.txt', 'a') as f:
-                f.write(f"{datetime.now()}: {error_msg}\n")
-        except:
-            pass
+        debug_log("ERROR: Unhandled exception in main", {
+            "error": str(e),
+            "type": type(e).__name__,
+            "traceback": traceback.format_exc()
+        })
         try:
             script_dir = Path(__file__).parent
             log_dir = script_dir / "logs"
