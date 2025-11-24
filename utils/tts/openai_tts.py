@@ -46,23 +46,45 @@ def speak(text):
         # Preserve audio environment variables for PulseAudio/PipeWire
         env = os.environ.copy()
 
+        # Debug logging
+        import sys
+        debug = os.getenv('OPENAI_TTS_DEBUG', 'false').lower() in ('true', '1')
+
         try:
             # macOS
+            if debug:
+                print("Trying afplay...", file=sys.stderr)
             subprocess.run(['afplay', audio_file], check=True, timeout=10, env=env)
-        except (FileNotFoundError, subprocess.SubprocessError):
+            if debug:
+                print("afplay succeeded", file=sys.stderr)
+        except FileNotFoundError:
             try:
                 # Linux with mpg123 (best for MP3)
+                if debug:
+                    print("Trying mpg123...", file=sys.stderr)
                 subprocess.run(['mpg123', '-q', audio_file], check=True, timeout=10, env=env)
-            except (FileNotFoundError, subprocess.SubprocessError):
+                if debug:
+                    print("mpg123 succeeded", file=sys.stderr)
+            except (FileNotFoundError, subprocess.SubprocessError) as e:
+                if debug:
+                    print(f"mpg123 failed: {e}", file=sys.stderr)
                 try:
                     # Linux with ffplay (fallback)
+                    if debug:
+                        print("Trying ffplay...", file=sys.stderr)
                     subprocess.run(['ffplay', '-nodisp', '-autoexit', '-loglevel', 'quiet', audio_file],
                                  check=True, timeout=10,
                                  stdout=subprocess.DEVNULL,
                                  stderr=subprocess.DEVNULL,
                                  env=env)
-                except (FileNotFoundError, subprocess.SubprocessError):
-                    pass
+                    if debug:
+                        print("ffplay succeeded", file=sys.stderr)
+                except (FileNotFoundError, subprocess.SubprocessError) as e:
+                    if debug:
+                        print(f"ffplay failed: {e}", file=sys.stderr)
+        except subprocess.SubprocessError as e:
+            if debug:
+                print(f"afplay failed: {e}", file=sys.stderr)
 
         # Clean up temp file
         try:

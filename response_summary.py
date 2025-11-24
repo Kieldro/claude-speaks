@@ -255,6 +255,7 @@ def summarize_and_announce(transcript_path: str):
                     safe_env['ELEVENLABS_VOICE_ID'] = os.getenv('ELEVENLABS_VOICE_ID', '')
                 elif 'openai' in tts_script_str:
                     safe_env['OPENAI_API_KEY'] = os.getenv('OPENAI_API_KEY', '')
+                    safe_env['OPENAI_TTS_DEBUG'] = os.getenv('OPENAI_TTS_DEBUG', 'false')
 
                 result = subprocess.run(
                     [tts_script, sanitized_summary],  # Call script directly to use shebang
