@@ -10,6 +10,7 @@ import json
 import os
 import sys
 import subprocess
+import signal
 import fcntl
 from pathlib import Path
 from datetime import datetime
@@ -258,23 +259,35 @@ def summarize_and_announce(transcript_path: str):
                     safe_env['OPENAI_API_KEY'] = os.getenv('OPENAI_API_KEY', '')
                     safe_env['OPENAI_TTS_DEBUG'] = os.getenv('OPENAI_TTS_DEBUG', 'false')
 
-                result = subprocess.run(
-                    [tts_script, sanitized_summary],  # Call script directly to use shebang
-                    capture_output=True,
-                    timeout=15,  # Longer timeout for ElevenLabs API call + playback
-                    env=safe_env  # Use minimal safe environment
+                # Use Popen with process group to ensure child processes (mpg123) are killed on timeout
+                process = subprocess.Popen(
+                    [tts_script, sanitized_summary],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    env=safe_env,
+                    start_new_session=True  # Create new process group
                 )
-                metadata["tts_triggered"] = True
-                metadata["tts_returncode"] = result.returncode
-                debug_log("TTS completed", {
-                    "returncode": result.returncode,
-                    "stdout": result.stdout.decode(errors='replace') if result.stdout else "",
-                    "stderr": result.stderr.decode(errors='replace') if result.stderr else ""
-                })
-            except subprocess.TimeoutExpired:
-                metadata["tts_triggered"] = False
-                metadata["tts_error"] = "Timeout after 15s"
-                debug_log("ERROR: TTS timeout")
+
+                try:
+                    stdout, stderr = process.communicate(timeout=15)
+                    metadata["tts_triggered"] = True
+                    metadata["tts_returncode"] = process.returncode
+                    debug_log("TTS completed", {
+                        "returncode": process.returncode,
+                        "stdout": stdout.decode(errors='replace') if stdout else "",
+                        "stderr": stderr.decode(errors='replace') if stderr else ""
+                    })
+                except subprocess.TimeoutExpired:
+                    # Kill entire process group to ensure mpg123 is terminated
+                    try:
+                        os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+                        debug_log("Killed TTS process group due to timeout")
+                    except:
+                        process.kill()
+                    process.wait()
+                    metadata["tts_triggered"] = False
+                    metadata["tts_error"] = "Timeout after 15s"
+                    debug_log("ERROR: TTS timeout")
             except Exception as e:
                 metadata["tts_triggered"] = False
                 metadata["tts_error"] = str(e)
