@@ -79,22 +79,22 @@ def debug_log(message: str, data: dict = None):
 def get_tts_script_path():
     """
     Get the TTS script path for summaries.
-    Priority: ElevenLabs > OpenAI > system voice
+    Priority: OpenAI > ElevenLabs > system voice
     """
     script_dir = Path(__file__).parent
     tts_dir = script_dir / "utils" / "tts"
 
-    # Check for ElevenLabs API key (highest quality)
-    if os.getenv('ELEVENLABS_API_KEY'):
-        elevenlabs_script = tts_dir / "elevenlabs_tts.py"
-        if elevenlabs_script.exists():
-            return str(elevenlabs_script)
-
-    # Fallback to OpenAI
+    # Check for OpenAI API key (fastest and cheapest)
     if os.getenv('OPENAI_API_KEY'):
         openai_script = tts_dir / "openai_tts.py"
         if openai_script.exists():
             return str(openai_script)
+
+    # Fallback to ElevenLabs (highest quality)
+    if os.getenv('ELEVENLABS_API_KEY'):
+        elevenlabs_script = tts_dir / "elevenlabs_tts.py"
+        if elevenlabs_script.exists():
+            return str(elevenlabs_script)
 
     # Fallback to system voice (free, no API key required)
     system_voice_script = tts_dir / "system_voice_tts.py"
