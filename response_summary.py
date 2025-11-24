@@ -98,6 +98,12 @@ def summarize_and_announce(transcript_path: str):
                     timeout=10
                 )
 
+                # Log subprocess output for debugging
+                with open('/tmp/response_summary_subprocess.txt', 'a') as f:
+                    f.write(f"{datetime.now()}: returncode={result.returncode}\n")
+                    f.write(f"stdout: {result.stdout[:200]}\n")
+                    f.write(f"stderr: {result.stderr[:200]}\n")
+
                 if result.returncode == 0 and result.stdout.strip():
                     summary = result.stdout.strip()
                     metadata["summary"] = summary
@@ -108,13 +114,17 @@ def summarize_and_announce(transcript_path: str):
                     summary = ' '.join(words)
                     metadata["summary"] = summary
                     metadata["summary_method"] = "simple_fallback"
+                    with open('/tmp/response_summary_subprocess.txt', 'a') as f:
+                        f.write(f"Using simple_fallback\n")
 
-            except subprocess.TimeoutExpired:
+            except subprocess.TimeoutExpired as e:
                 # LLM timeout - use simple fallback
                 words = response_text.split()[:10]
                 summary = ' '.join(words)
                 metadata["summary"] = summary
                 metadata["summary_method"] = "timeout_fallback"
+                with open('/tmp/response_summary_subprocess.txt', 'a') as f:
+                    f.write(f"Timeout after 10s\n")
         else:
             # No summarizer - use simple fallback
             words = response_text.split()[:10]
@@ -151,6 +161,10 @@ def append_log_entry(log_path: Path, data: dict):
 
 
 def main():
+    # Log that hook was triggered
+    with open('/tmp/response_summary_triggered.txt', 'a') as f:
+        f.write(f"{datetime.now()}: Hook triggered\n")
+
     try:
         # Read JSON input from stdin
         input_data = json.loads(sys.stdin.read())
