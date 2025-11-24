@@ -66,6 +66,16 @@ def summarize_and_announce(transcript_path: str):
     Returns:
         dict: Metadata about the operation
     """
+    # Play instant notification sound (non-blocking)
+    try:
+        subprocess.Popen(
+            ['ffplay', '-nodisp', '-autoexit', '-loglevel', 'error', '-volume', '50', '/usr/share/sounds/Yaru/stereo/message.oga'],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
+    except:
+        pass  # Ignore if sound fails
+
     metadata = {
         "tts_triggered": False,
         "summary": None,
@@ -87,6 +97,13 @@ def summarize_and_announce(transcript_path: str):
         # Summarize the response
         llm_dir = Path(__file__).parent / "utils" / "llm"
         summarizer_script = llm_dir / "summarizer.py"
+
+        # Debug: log paths
+        with open('/tmp/response_summary_paths.txt', 'a') as f:
+            f.write(f"{datetime.now()}: __file__={__file__}\n")
+            f.write(f"  llm_dir={llm_dir}\n")
+            f.write(f"  summarizer_script={summarizer_script}\n")
+            f.write(f"  exists={summarizer_script.exists()}\n")
 
         if summarizer_script.exists():
             try:
@@ -132,17 +149,24 @@ def summarize_and_announce(transcript_path: str):
             metadata["summary"] = summary
             metadata["summary_method"] = "no_summarizer"
 
-        # Speak the summary via TTS
+        # Speak the summary via TTS (detached process survives hook exit)
         tts_script = get_tts_script_path()
         if tts_script and summary:
-            # Fire-and-forget: spawn TTS in background
-            subprocess.Popen(
-                [sys.executable, tts_script, summary],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                start_new_session=True  # Detach from parent process
-            )
-            metadata["tts_triggered"] = True
+            # Fully detach TTS process so it survives even if hook is killed
+            try:
+                # Use nohup-style detachment
+                subprocess.Popen(
+                    [sys.executable, tts_script, summary],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    stdin=subprocess.DEVNULL,
+                    start_new_session=True,  # Completely detach from parent
+                    preexec_fn=os.setpgrp if hasattr(os, 'setpgrp') else None  # New process group
+                )
+                metadata["tts_triggered"] = True
+            except Exception as e:
+                metadata["tts_triggered"] = False
+                metadata["tts_error"] = str(e)
 
     except Exception as e:
         metadata["error"] = f"{type(e).__name__}: {str(e)}"
