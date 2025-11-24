@@ -26,32 +26,30 @@ from transcript import get_combined_response
 
 def get_tts_script_path():
     """
-    Get the cached TTS script path.
-    Uses cached audio files when available to save API costs and reduce latency.
+    Get the TTS script path for summaries.
+    Uses non-cached TTS to avoid delays and ensure summaries play immediately.
+    Summaries are dynamic and shouldn't be cached.
     """
     script_dir = Path(__file__).parent
     tts_dir = script_dir / "utils" / "tts"
 
-    # Use cached TTS wrapper (supports all TTS backends with caching)
-    cached_tts_script = tts_dir / "cached_tts.py"
-    if cached_tts_script.exists():
-        return str(cached_tts_script)
+    # Use system voice for summaries (fast, no API calls, no caching)
+    # This ensures immediate playback without waiting for API responses
+    system_voice_script = tts_dir / "system_voice_tts.py"
+    if system_voice_script.exists():
+        return str(system_voice_script)
 
-    # Fallback to non-cached scripts if cached_tts doesn't exist
-    if os.getenv('ELEVENLABS_API_KEY'):
-        elevenlabs_script = tts_dir / "elevenlabs_tts.py"
-        if elevenlabs_script.exists():
-            return str(elevenlabs_script)
-
+    # Fallback to OpenAI if system voice not available
     if os.getenv('OPENAI_API_KEY'):
         openai_script = tts_dir / "openai_tts.py"
         if openai_script.exists():
             return str(openai_script)
 
-    # Fall back to system voice (no API key required)
-    system_voice_script = tts_dir / "system_voice_tts.py"
-    if system_voice_script.exists():
-        return str(system_voice_script)
+    # Fallback to ElevenLabs
+    if os.getenv('ELEVENLABS_API_KEY'):
+        elevenlabs_script = tts_dir / "elevenlabs_tts.py"
+        if elevenlabs_script.exists():
+            return str(elevenlabs_script)
 
     return None
 
@@ -151,22 +149,34 @@ def summarize_and_announce(transcript_path: str):
 
         # Speak the summary via TTS (detached process survives hook exit)
         tts_script = get_tts_script_path()
+
+        # Debug logging
+        with open('/tmp/response_summary_tts.txt', 'a') as f:
+            f.write(f"{datetime.now()}: tts_script={tts_script}, summary={summary[:50]}\n")
+
         if tts_script and summary:
             # Fully detach TTS process so it survives even if hook is killed
             try:
                 # Use nohup-style detachment
+                with open('/tmp/response_summary_tts.txt', 'a') as f:
+                    f.write(f"  Spawning: {sys.executable} {tts_script} {summary[:30]}\n")
+
                 subprocess.Popen(
                     [sys.executable, tts_script, summary],
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
                     stdin=subprocess.DEVNULL,
-                    start_new_session=True,  # Completely detach from parent
-                    preexec_fn=os.setpgrp if hasattr(os, 'setpgrp') else None  # New process group
+                    start_new_session=True  # Completely detach from parent
                 )
                 metadata["tts_triggered"] = True
+
+                with open('/tmp/response_summary_tts.txt', 'a') as f:
+                    f.write(f"  TTS spawned successfully\n")
             except Exception as e:
                 metadata["tts_triggered"] = False
                 metadata["tts_error"] = str(e)
+                with open('/tmp/response_summary_tts.txt', 'a') as f:
+                    f.write(f"  ERROR: {e}\n")
 
     except Exception as e:
         metadata["error"] = f"{type(e).__name__}: {str(e)}"

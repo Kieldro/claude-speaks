@@ -66,9 +66,10 @@ utils/tts/cache/
   - 260 unique combinations (low collision for <10 concurrent sessions)
 - **Response summarization (opt-in)**: Set `CLAUDE_RESPONSE_SUMMARY_ENABLED=true` in `~/.env`
   - Extracts Claude's latest response from conversation transcript
-  - Summarizes to 1 short sentence using LLM (OpenAI → Anthropic → simple fallback)
-  - Speaks summary via TTS when Stop hook fires
-  - 2-second LLM timeout with guaranteed fallback
+  - Summarizes to 5-7 words using LLM (OpenAI → Anthropic → simple fallback)
+  - Speaks summary via system voice TTS (non-cached for immediate playback)
+  - Summaries are dynamic and not cached to avoid delays
+  - 10-second LLM timeout with guaranteed fallback
 - 5% chance of LLM-generated completion message (95% use cached)
 - Voice ID from `$ELEVENLABS_VOICE_ID` environment variable
 
