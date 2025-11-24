@@ -67,12 +67,26 @@ utils/tts/cache/
   - 260 unique combinations (low collision for <10 concurrent sessions)
 - **Response summarization (opt-in)**: Set `CLAUDE_RESPONSE_SUMMARY_ENABLED=true` in `~/.env`
   - Extracts Claude's latest response from conversation transcript
-  - Summarizes in one concise sentence using LLM (OpenAI → Anthropic → simple fallback)
+  - Summarizes in first person ("I added...") using LLM priority: **Ollama (local)** → OpenAI → Anthropic → simple fallback
+  - **Ollama provides 5x speedup**: ~200-500ms vs ~2-3s (OpenAI)
   - Speaks summary via OpenAI Ash voice (OpenAI → ElevenLabs → system voice)
   - Plays notification sound when hook starts
   - Summaries are dynamic and not cached to avoid delays
-  - 10-second LLM timeout with guaranteed fallback
+  - Uses file lock to prevent duplicate playback from multiple Claude Code sessions
   - For system voice fallback: Set `TTS_VOLUME=75` in `~/.env` (default: 0, range: -100 to +100)
+
+  **Ollama Setup (optional, for faster summaries)**:
+  ```bash
+  # Install Ollama
+  curl -fsSL https://ollama.com/install.sh | sh
+
+  # Pull fast 3B model (~2GB, ~200-500ms inference)
+  ollama pull qwen2.5:3b
+
+  # Configure (optional, defaults shown)
+  echo 'OLLAMA_HOST=http://localhost:11434' >> ~/.env
+  echo 'OLLAMA_MODEL=qwen2.5:3b' >> ~/.env
+  ```
 - 5% chance of LLM-generated completion message (95% use cached)
 - Voice ID from `$ELEVENLABS_VOICE_ID` environment variable
 
