@@ -42,13 +42,15 @@ def summarize_with_openai(text: str, timeout: int = 8) -> str:
             model="gpt-4o-mini",
             messages=[{
                 "role": "user",
-                "content": f"""Summarize this in 5-7 words. Focus on the main action/result only.
+                "content": f"""Summarize this AI assistant response in one concise sentence.
+Focus on what action was completed or what information was provided.
+Be natural-sounding for text-to-speech.
 
 {text}
 
-5-7 word summary:"""
+Summary:"""
             }],
-            max_tokens=20,
+            max_tokens=100,
             temperature=0.3,
         )
 
@@ -74,13 +76,13 @@ def summarize_with_anthropic(text: str, timeout: int = 2) -> str:
 
         response = client.messages.create(
             model="claude-3-5-haiku-20241022",
-            max_tokens=30,
+            max_tokens=100,
             temperature=0.3,
             messages=[{
                 "role": "user",
-                "content": f"""Summarize this AI assistant response in ONE short sentence (max 12 words).
+                "content": f"""Summarize this AI assistant response in one concise sentence.
 Focus on what action was completed or what information was provided.
-Be concise and natural-sounding for text-to-speech.
+Be natural-sounding for text-to-speech.
 
 Response to summarize:
 {text}
@@ -118,7 +120,7 @@ def simple_summarize(text: str, max_words: int = 12) -> str:
 
 def summarize_response(text: str, timeout: int = 8) -> str:
     """
-    Summarize Claude's response in one short sentence.
+    Summarize Claude's response in one concise sentence.
 
     Tries LLMs in order: OpenAI -> Anthropic -> Completion messages
 
@@ -127,7 +129,7 @@ def summarize_response(text: str, timeout: int = 8) -> str:
         timeout: Timeout in seconds for LLM calls
 
     Returns:
-        A short summary sentence (12 words or less)
+        A concise summary sentence
     """
     if not text or not text.strip():
         return "Task complete"
