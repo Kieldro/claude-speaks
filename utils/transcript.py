@@ -59,13 +59,13 @@ def get_latest_assistant_responses(transcript_path: str, limit: int = 5) -> List
     return responses
 
 
-def get_combined_response(transcript_path: str, max_chars: int = 2000) -> Optional[str]:
+def get_combined_response(transcript_path: str, max_chars: Optional[int] = None) -> Optional[str]:
     """
     Get the latest assistant responses combined into a single text.
 
     Args:
         transcript_path: Path to the JSONL transcript file
-        max_chars: Maximum characters to return
+        max_chars: Maximum characters to return (None = no limit)
 
     Returns:
         Combined response text or None if no responses found
@@ -78,8 +78,8 @@ def get_combined_response(transcript_path: str, max_chars: int = 2000) -> Option
     # Combine responses (newest first, so reverse to get chronological order)
     combined = '\n\n'.join(reversed(responses))
 
-    # Truncate if too long
-    if len(combined) > max_chars:
+    # Truncate if max_chars specified
+    if max_chars and len(combined) > max_chars:
         combined = combined[:max_chars] + '...'
 
     return combined
