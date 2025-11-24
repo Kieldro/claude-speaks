@@ -44,7 +44,7 @@ def speak(text):
             "voice_settings": {
                 "stability": 0.5,
                 "similarity_boost": 0.75,
-                "speed": 1.2  # 1.2x speed (max allowed: 1.2, range: 0.7-1.2)
+                "speed": 1.0  # Normal speed (range: 0.7-1.2)
             }
         }
 
