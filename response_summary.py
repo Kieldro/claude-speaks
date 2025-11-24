@@ -23,6 +23,31 @@ except ImportError:
 sys.path.insert(0, str(Path(__file__).parent / "utils"))
 from transcript import get_combined_response
 
+
+def sanitize_text(text: str, max_length: int = 50000) -> str:
+    """
+    Sanitize text input for subprocess calls to prevent command injection.
+
+    Args:
+        text: Input text to sanitize
+        max_length: Maximum allowed length
+
+    Returns:
+        Sanitized text safe for subprocess calls
+    """
+    if not text or not isinstance(text, str):
+        return ""
+
+    # Remove null bytes and limit length
+    text = text.replace('\0', '').strip()
+
+    # Truncate if too long
+    if len(text) > max_length:
+        text = text[:max_length]
+
+    return text
+
+
 # Debug logging configuration
 DEBUG_ENABLED = os.getenv('RESPONSE_SUMMARY_DEBUG', 'false').lower() in ('true', '1', 'yes')
 DEBUG_LOG = Path('/tmp/response_summary_debug.log')
@@ -33,11 +58,18 @@ def debug_log(message: str, data: dict = None):
         return
 
     try:
+        # Create log file with restrictive permissions on first write
+        if not DEBUG_LOG.exists():
+            DEBUG_LOG.touch(mode=0o600)  # Owner read/write only
+
         with open(DEBUG_LOG, 'a') as f:
             timestamp = datetime.now().isoformat()
             f.write(f"[{timestamp}] {message}\n")
             if data:
                 for key, value in data.items():
+                    # Truncate large values to prevent log bloat
+                    if isinstance(value, str) and len(value) > 500:
+                        value = value[:500] + "... (truncated)"
                     f.write(f"  {key}: {value}\n")
             f.write("\n")
     except Exception:
@@ -136,13 +168,16 @@ def summarize_and_announce(transcript_path: str):
 
         if summarizer_script.exists():
             try:
+                # Sanitize input before passing to subprocess
+                sanitized_response = sanitize_text(response_text)
+
                 debug_log("Calling LLM summarizer", {
                     "timeout": 10,
                     "response_preview": response_text[:100]
                 })
                 # Call summarizer with 10 second timeout (execute directly to use uv shebang)
                 result = subprocess.run(
-                    [str(summarizer_script), response_text],
+                    [str(summarizer_script), sanitized_response],
                     capture_output=True,
                     text=True,
                     timeout=10
@@ -194,24 +229,42 @@ def summarize_and_announce(transcript_path: str):
         if tts_script and summary:
             # Run TTS synchronously - system voice is fast enough
             try:
+                # Sanitize summary before passing to subprocess
+                sanitized_summary = sanitize_text(summary, max_length=500)
+
                 debug_log("Running TTS synchronously", {
                     "executable": sys.executable,
                     "script": tts_script,
                     "summary": summary
                 })
 
+                # Build minimal environment with only necessary variables
+                safe_env = {
+                    'PATH': os.environ.get('PATH', ''),
+                    'HOME': os.environ.get('HOME', ''),
+                    'TTS_VOLUME': os.getenv('TTS_VOLUME', '0'),
+                }
+
+                # Add API keys only if needed for specific TTS script
+                tts_script_str = str(tts_script)
+                if 'elevenlabs' in tts_script_str:
+                    safe_env['ELEVENLABS_API_KEY'] = os.getenv('ELEVENLABS_API_KEY', '')
+                    safe_env['ELEVENLABS_VOICE_ID'] = os.getenv('ELEVENLABS_VOICE_ID', '')
+                elif 'openai' in tts_script_str:
+                    safe_env['OPENAI_API_KEY'] = os.getenv('OPENAI_API_KEY', '')
+
                 result = subprocess.run(
-                    [sys.executable, tts_script, summary],
+                    [sys.executable, tts_script, sanitized_summary],
                     capture_output=True,
                     timeout=15,  # Longer timeout for ElevenLabs API call + playback
-                    env=os.environ.copy()  # Pass environment variables including TTS_VOLUME
+                    env=safe_env  # Use minimal safe environment
                 )
                 metadata["tts_triggered"] = True
                 metadata["tts_returncode"] = result.returncode
                 debug_log("TTS completed", {
                     "returncode": result.returncode,
-                    "stdout": result.stdout.decode() if result.stdout else "",
-                    "stderr": result.stderr.decode() if result.stderr else ""
+                    "stdout": result.stdout.decode(errors='replace') if result.stdout else "",
+                    "stderr": result.stderr.decode(errors='replace') if result.stderr else ""
                 })
             except subprocess.TimeoutExpired:
                 metadata["tts_triggered"] = False
