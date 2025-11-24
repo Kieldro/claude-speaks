@@ -243,6 +243,9 @@ def summarize_and_announce(transcript_path: str):
                     'PATH': os.environ.get('PATH', ''),
                     'HOME': os.environ.get('HOME', ''),
                     'TTS_VOLUME': os.getenv('TTS_VOLUME', '0'),
+                    # Audio environment variables needed for PulseAudio/PipeWire
+                    'XDG_RUNTIME_DIR': os.environ.get('XDG_RUNTIME_DIR', ''),
+                    'DBUS_SESSION_BUS_ADDRESS': os.environ.get('DBUS_SESSION_BUS_ADDRESS', ''),
                 }
 
                 # Add API keys only if needed for specific TTS script
