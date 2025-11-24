@@ -42,13 +42,13 @@ def summarize_with_openai(text: str, timeout: int = 8) -> str:
             model="gpt-4o-mini",
             messages=[{
                 "role": "user",
-                "content": f"""Summarize this in 5-7 words. Focus on the main action/result only.
+                "content": f"""Summarize this in 3-5 words. Focus on the main action/result only.
 
 {text}
 
-5-7 word summary:"""
+3-5 word summary:"""
             }],
-            max_tokens=20,
+            max_tokens=15,
             temperature=0.3,
         )
 

@@ -47,29 +47,27 @@ def debug_log(message: str, data: dict = None):
 def get_tts_script_path():
     """
     Get the TTS script path for summaries.
-    Uses non-cached TTS to avoid delays and ensure summaries play immediately.
-    Summaries are dynamic and shouldn't be cached.
+    Priority: ElevenLabs > OpenAI > system voice
     """
     script_dir = Path(__file__).parent
     tts_dir = script_dir / "utils" / "tts"
 
-    # Use system voice for summaries (fast, no API calls, no caching)
-    # This ensures immediate playback without waiting for API responses
-    system_voice_script = tts_dir / "system_voice_tts.py"
-    if system_voice_script.exists():
-        return str(system_voice_script)
+    # Check for ElevenLabs API key (highest quality)
+    if os.getenv('ELEVENLABS_API_KEY'):
+        elevenlabs_script = tts_dir / "elevenlabs_tts.py"
+        if elevenlabs_script.exists():
+            return str(elevenlabs_script)
 
-    # Fallback to OpenAI if system voice not available
+    # Fallback to OpenAI
     if os.getenv('OPENAI_API_KEY'):
         openai_script = tts_dir / "openai_tts.py"
         if openai_script.exists():
             return str(openai_script)
 
-    # Fallback to ElevenLabs
-    if os.getenv('ELEVENLABS_API_KEY'):
-        elevenlabs_script = tts_dir / "elevenlabs_tts.py"
-        if elevenlabs_script.exists():
-            return str(elevenlabs_script)
+    # Fallback to system voice (free, no API key required)
+    system_voice_script = tts_dir / "system_voice_tts.py"
+    if system_voice_script.exists():
+        return str(system_voice_script)
 
     return None
 
@@ -89,17 +87,17 @@ def summarize_and_announce(transcript_path: str):
         "cwd": os.getcwd()
     })
 
-    # Play instant notification sound (non-blocking)
+    # Play instant notification sound (non-blocking) to indicate hook started
     try:
-        debug_log("Playing notification sound")
+        debug_log("Playing start notification")
         subprocess.Popen(
-            ['ffplay', '-nodisp', '-autoexit', '-loglevel', 'error', '-volume', '50', '/usr/share/sounds/Yaru/stereo/message.oga'],
+            ['paplay', '/usr/share/sounds/freedesktop/stereo/message-new-instant.oga'],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL
         )
-        debug_log("Notification sound spawned successfully")
+        debug_log("Start notification spawned")
     except Exception as e:
-        debug_log("Notification sound failed", {"error": str(e)})
+        debug_log("Start notification failed", {"error": str(e)})
 
     metadata = {
         "tts_triggered": False,
@@ -205,7 +203,7 @@ def summarize_and_announce(transcript_path: str):
                 result = subprocess.run(
                     [sys.executable, tts_script, summary],
                     capture_output=True,
-                    timeout=5,
+                    timeout=15,  # Longer timeout for ElevenLabs API call + playback
                     env=os.environ.copy()  # Pass environment variables including TTS_VOLUME
                 )
                 metadata["tts_triggered"] = True
@@ -217,7 +215,7 @@ def summarize_and_announce(transcript_path: str):
                 })
             except subprocess.TimeoutExpired:
                 metadata["tts_triggered"] = False
-                metadata["tts_error"] = "Timeout after 5s"
+                metadata["tts_error"] = "Timeout after 15s"
                 debug_log("ERROR: TTS timeout")
             except Exception as e:
                 metadata["tts_triggered"] = False

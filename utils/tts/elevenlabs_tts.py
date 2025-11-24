@@ -40,12 +40,11 @@ def speak(text):
 
         data = {
             "text": text,
-            "model_id": "eleven_multilingual_v2",
+            "model_id": "eleven_turbo_v2_5",  # Faster, lower latency model
             "voice_settings": {
-                "stability": 0.0,  # Lower = more expressive/variable
-                "similarity_boost": 0.0,  # Lower = more creative interpretation
-                "style": 1.0,  # Higher = more style exaggeration
-                "use_speaker_boost": True  # Boost clarity
+                "stability": 0.5,
+                "similarity_boost": 0.75,
+                "speed": 1.2  # 1.2x speed (max allowed: 1.2, range: 0.7-1.2)
             }
         }
 
