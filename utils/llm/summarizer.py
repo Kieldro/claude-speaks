@@ -47,12 +47,12 @@ def summarize_with_ollama(text: str, timeout: int = 3) -> str:
             f"{ollama_host}/api/generate",
             json={
                 "model": ollama_model,
-                "prompt": f"""Summarize this AI assistant response in one concise sentence, written in first person.
+                "prompt": f"""Summarize this Claude Code assistant response in one concise sentence, as if Claude Code is speaking.
 Be natural-sounding for text-to-speech.
 
 {text}
 
-Summary (first person):""",
+Summary (Claude Code speaking):""",
                 "stream": False,
                 "options": {
                     "temperature": 0.3,
@@ -90,12 +90,12 @@ def summarize_with_openai(text: str, timeout: int = 8) -> str:
             model="gpt-4o-mini",
             messages=[{
                 "role": "user",
-                "content": f"""Summarize this AI assistant response in one concise sentence, written in first person.
+                "content": f"""Summarize this Claude Code assistant response in one concise sentence, as if Claude Code is speaking.
 Be natural-sounding for text-to-speech.
 
 {text}
 
-Summary (first person):"""
+Summary (Claude Code speaking):"""
             }],
             max_tokens=100,
             temperature=0.3,
@@ -127,13 +127,13 @@ def summarize_with_anthropic(text: str, timeout: int = 2) -> str:
             temperature=0.3,
             messages=[{
                 "role": "user",
-                "content": f"""Summarize this AI assistant response in one concise sentence, written in first person.
+                "content": f"""Summarize this Claude Code assistant response in one concise sentence, as if Claude Code is speaking.
 Be natural-sounding for text-to-speech.
 
 Response to summarize:
 {text}
 
-Summary (first person):"""
+Summary (Claude Code speaking):"""
             }]
         )
 
@@ -166,7 +166,7 @@ def simple_summarize(text: str, max_words: int = 12) -> str:
 
 def summarize_response(text: str, timeout: int = 8) -> str:
     """
-    Summarize Claude's response in one concise sentence.
+    Summarize Claude's response in one concise sentence, in Claude Code's voice.
 
     Tries LLMs in order: Ollama (local) -> OpenAI -> Anthropic -> Completion messages
 
@@ -175,7 +175,7 @@ def summarize_response(text: str, timeout: int = 8) -> str:
         timeout: Timeout in seconds for LLM calls
 
     Returns:
-        A concise summary sentence in first person
+        A concise summary sentence as if Claude Code is speaking
     """
     if not text or not text.strip():
         return "Task complete"
