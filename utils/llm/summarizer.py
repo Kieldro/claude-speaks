@@ -47,8 +47,7 @@ def summarize_with_ollama(text: str, timeout: int = 3) -> str:
             f"{ollama_host}/api/generate",
             json={
                 "model": ollama_model,
-                "prompt": f"""Summarize this AI assistant response in one concise sentence, written in first person (as if the assistant is speaking).
-Use "I" statements (e.g., "I added...", "I found...", "I fixed...").
+                "prompt": f"""Summarize this AI assistant response in one concise sentence, written in first person.
 Be natural-sounding for text-to-speech.
 
 {text}
@@ -91,8 +90,7 @@ def summarize_with_openai(text: str, timeout: int = 8) -> str:
             model="gpt-4o-mini",
             messages=[{
                 "role": "user",
-                "content": f"""Summarize this AI assistant response in one concise sentence, written in first person (as if the assistant is speaking).
-Use "I" statements (e.g., "I added...", "I found...", "I fixed...").
+                "content": f"""Summarize this AI assistant response in one concise sentence, written in first person.
 Be natural-sounding for text-to-speech.
 
 {text}
@@ -129,8 +127,7 @@ def summarize_with_anthropic(text: str, timeout: int = 2) -> str:
             temperature=0.3,
             messages=[{
                 "role": "user",
-                "content": f"""Summarize this AI assistant response in one concise sentence, written in first person (as if the assistant is speaking).
-Use "I" statements (e.g., "I added...", "I found...", "I fixed...").
+                "content": f"""Summarize this AI assistant response in one concise sentence, written in first person.
 Be natural-sounding for text-to-speech.
 
 Response to summarize:

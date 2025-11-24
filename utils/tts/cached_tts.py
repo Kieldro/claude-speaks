@@ -94,21 +94,21 @@ def play_audio(audio_file):
 def get_tts_script_path():
     """
     Determine which TTS script to use based on available API keys.
-    Priority order: ElevenLabs > OpenAI > system voice (spd-say/espeak)
+    Priority order: OpenAI > ElevenLabs > system voice (spd-say/espeak)
     """
     script_dir = Path(__file__).parent
 
-    # Check for ElevenLabs API key (highest priority)
-    if os.getenv('ELEVENLABS_API_KEY'):
-        elevenlabs_script = script_dir / "elevenlabs_tts.py"
-        if elevenlabs_script.exists():
-            return str(elevenlabs_script)
-
-    # Check for OpenAI API key (second priority)
+    # Check for OpenAI API key (highest priority - fastest and cheapest)
     if os.getenv('OPENAI_API_KEY'):
         openai_script = script_dir / "openai_tts.py"
         if openai_script.exists():
             return str(openai_script)
+
+    # Check for ElevenLabs API key (second priority - higher quality but more expensive)
+    if os.getenv('ELEVENLABS_API_KEY'):
+        elevenlabs_script = script_dir / "elevenlabs_tts.py"
+        if elevenlabs_script.exists():
+            return str(elevenlabs_script)
 
     # Fall back to system voice (no API key required)
     system_voice_script = script_dir / "system_voice_tts.py"

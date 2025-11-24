@@ -43,17 +43,17 @@ def get_tts_script_path():
         return str(cached_tts_script)
 
     # Fallback to non-cached scripts if cached_tts doesn't exist
-    # Check for ElevenLabs API key (highest priority)
-    if os.getenv('ELEVENLABS_API_KEY'):
-        elevenlabs_script = tts_dir / "elevenlabs_tts.py"
-        if elevenlabs_script.exists():
-            return str(elevenlabs_script)
-
-    # Check for OpenAI API key (second priority)
+    # Check for OpenAI API key (highest priority - fastest and cheapest)
     if os.getenv('OPENAI_API_KEY'):
         openai_script = tts_dir / "openai_tts.py"
         if openai_script.exists():
             return str(openai_script)
+
+    # Check for ElevenLabs API key (second priority - higher quality but more expensive)
+    if os.getenv('ELEVENLABS_API_KEY'):
+        elevenlabs_script = tts_dir / "elevenlabs_tts.py"
+        if elevenlabs_script.exists():
+            return str(elevenlabs_script)
 
     # Fall back to system voice (no API key required)
     system_voice_script = tts_dir / "system_voice_tts.py"
