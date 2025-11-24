@@ -18,6 +18,10 @@ echo '{"session_id": "abc123"}' | python3 stop.py  # Default: "Task complete!"
 # With session identifiers enabled
 export CLAUDE_SESSION_ID_ENABLED=true
 echo '{"session_id": "abc123"}' | python3 stop.py  # "Papa 0: Job complete!"
+
+# With response summary enabled
+export CLAUDE_RESPONSE_SUMMARY_ENABLED=true
+echo '{"transcript_path": "path/to/transcript.jsonl", "session_id": "abc123"}' | python3 response_summary.py
 ```
 
 ## Architecture
@@ -32,7 +36,10 @@ Hooks call TTS scripts directly with subprocess, using smart caching for perform
 ### Scripts
 - `notification.py` - Plays "your agent needs input" when Claude needs input
 - `stop.py` - Plays completion message, optionally with session identifier (e.g., "Charlie 1: Task complete!")
+- `response_summary.py` - Summarizes Claude's response and speaks it (opt-in via `CLAUDE_RESPONSE_SUMMARY_ENABLED`)
 - `utils/messages.py` - Shared message definitions (20+ completion messages)
+- `utils/transcript.py` - Extract Claude responses from conversation transcripts
+- `utils/llm/summarizer.py` - LLM-based text summarization (with fallback)
 - `utils/tts/cached_tts.py` - Cache-aware TTS wrapper
 - `utils/tts/generate_cache.py` - Pre-generate cache for all messages
 - `utils/tts/elevenlabs_tts.py` - ElevenLabs API client
@@ -57,9 +64,13 @@ utils/tts/cache/
   - Uses NATO phonetic alphabet + number (e.g., "Alpha 3", "Charlie 1")
   - Each session gets consistent identifier via MD5 hash (4-6 syllables total)
   - 260 unique combinations (low collision for <10 concurrent sessions)
+- **Response summarization (opt-in)**: Set `CLAUDE_RESPONSE_SUMMARY_ENABLED=true` in `~/.env`
+  - Extracts Claude's latest response from conversation transcript
+  - Summarizes to 1 short sentence using LLM (OpenAI → Anthropic → simple fallback)
+  - Speaks summary via TTS when Stop hook fires
+  - 2-second LLM timeout with guaranteed fallback
 - 5% chance of LLM-generated completion message (95% use cached)
 - Voice ID from `$ELEVENLABS_VOICE_ID` environment variable
-- 2-second LLM timeout with guaranteed cached fallback
 
 ### Troubleshooting
 
@@ -76,7 +87,14 @@ utils/tts/cache/
     "Stop": [{"matcher": "", "hooks": [{"type": "command", "command": "python3 ~/.claude/hooks/stop.py"}]}]
   }
   ```
-- Ensure symlinks exist: `ls -la ~/.claude/hooks/` should show `notification.py` and `stop.py` pointing to the repo
+- For response summarization, add both hooks to Stop:
+  ```json
+  "Stop": [{"matcher": "", "hooks": [
+    {"type": "command", "command": "python3 ~/.claude/hooks/stop.py"},
+    {"type": "command", "command": "python3 ~/.claude/hooks/response_summary.py"}
+  ]}]
+  ```
+- Ensure symlinks exist: `ls -la ~/.claude/hooks/` should show hook scripts pointing to the repo
 
 ## Adding Messages
 
