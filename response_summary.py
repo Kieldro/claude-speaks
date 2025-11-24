@@ -257,7 +257,7 @@ def summarize_and_announce(transcript_path: str):
                     safe_env['OPENAI_API_KEY'] = os.getenv('OPENAI_API_KEY', '')
 
                 result = subprocess.run(
-                    [sys.executable, tts_script, sanitized_summary],
+                    [tts_script, sanitized_summary],  # Call script directly to use shebang
                     capture_output=True,
                     timeout=15,  # Longer timeout for ElevenLabs API call + playback
                     env=safe_env  # Use minimal safe environment
