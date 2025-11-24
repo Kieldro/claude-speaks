@@ -2,6 +2,7 @@
 # /// script
 # requires-python = ">=3.8"
 # dependencies = [
+#     "requests",
 #     "openai",
 #     "anthropic",
 #     "python-dotenv",
@@ -27,6 +28,54 @@ except ImportError:
     get_completion_messages = None
 
 
+def summarize_with_ollama(text: str, timeout: int = 3) -> str:
+    """Summarize text using local Ollama model (fastest, runs locally)."""
+    try:
+        import requests
+
+        ollama_host = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+        ollama_model = os.getenv("OLLAMA_MODEL", "qwen2.5:3b")
+
+        # Check if Ollama is available
+        try:
+            requests.get(f"{ollama_host}/api/tags", timeout=1)
+        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
+            return None  # Ollama not running
+
+        # Generate summary using Ollama
+        response = requests.post(
+            f"{ollama_host}/api/generate",
+            json={
+                "model": ollama_model,
+                "prompt": f"""Summarize this AI assistant response in one concise sentence, written in first person (as if the assistant is speaking).
+Use "I" statements (e.g., "I added...", "I found...", "I fixed...").
+Be natural-sounding for text-to-speech.
+
+{text}
+
+Summary (first person):""",
+                "stream": False,
+                "options": {
+                    "temperature": 0.3,
+                    "num_predict": 100
+                }
+            },
+            timeout=timeout
+        )
+
+        if response.status_code == 200:
+            data = response.json()
+            summary = data.get("response", "").strip()
+            # Remove quotes if present
+            summary = summary.strip('"').strip("'")
+            return summary if summary else None
+
+        return None
+
+    except Exception:
+        return None
+
+
 def summarize_with_openai(text: str, timeout: int = 8) -> str:
     """Summarize text using OpenAI (gpt-4o-mini)."""
     try:
@@ -42,13 +91,13 @@ def summarize_with_openai(text: str, timeout: int = 8) -> str:
             model="gpt-4o-mini",
             messages=[{
                 "role": "user",
-                "content": f"""Summarize this AI assistant response in one concise sentence.
-Focus on what action was completed or what information was provided.
+                "content": f"""Summarize this AI assistant response in one concise sentence, written in first person (as if the assistant is speaking).
+Use "I" statements (e.g., "I added...", "I found...", "I fixed...").
 Be natural-sounding for text-to-speech.
 
 {text}
 
-Summary:"""
+Summary (first person):"""
             }],
             max_tokens=100,
             temperature=0.3,
@@ -80,14 +129,14 @@ def summarize_with_anthropic(text: str, timeout: int = 2) -> str:
             temperature=0.3,
             messages=[{
                 "role": "user",
-                "content": f"""Summarize this AI assistant response in one concise sentence.
-Focus on what action was completed or what information was provided.
+                "content": f"""Summarize this AI assistant response in one concise sentence, written in first person (as if the assistant is speaking).
+Use "I" statements (e.g., "I added...", "I found...", "I fixed...").
 Be natural-sounding for text-to-speech.
 
 Response to summarize:
 {text}
 
-Summary:"""
+Summary (first person):"""
             }]
         )
 
@@ -122,19 +171,24 @@ def summarize_response(text: str, timeout: int = 8) -> str:
     """
     Summarize Claude's response in one concise sentence.
 
-    Tries LLMs in order: OpenAI -> Anthropic -> Completion messages
+    Tries LLMs in order: Ollama (local) -> OpenAI -> Anthropic -> Completion messages
 
     Args:
         text: The response text to summarize
         timeout: Timeout in seconds for LLM calls
 
     Returns:
-        A concise summary sentence
+        A concise summary sentence in first person
     """
     if not text or not text.strip():
         return "Task complete"
 
-    # Try OpenAI first (user has this API key)
+    # Try Ollama first (fastest, local, ~200-500ms)
+    summary = summarize_with_ollama(text, timeout=3)
+    if summary:
+        return summary
+
+    # Try OpenAI as fallback (~2-3s)
     summary = summarize_with_openai(text, timeout)
     if summary:
         return summary
