@@ -27,7 +27,7 @@ except ImportError:
     get_completion_messages = None
 
 
-def summarize_with_openai(text: str, timeout: int = 2) -> str:
+def summarize_with_openai(text: str, timeout: int = 8) -> str:
     """Summarize text using OpenAI (gpt-4o-mini)."""
     try:
         from openai import OpenAI
@@ -42,16 +42,13 @@ def summarize_with_openai(text: str, timeout: int = 2) -> str:
             model="gpt-4o-mini",
             messages=[{
                 "role": "user",
-                "content": f"""Summarize this AI assistant response in ONE short sentence (max 12 words).
-Focus on what action was completed or what information was provided.
-Be concise and natural-sounding for text-to-speech.
+                "content": f"""Summarize this in 5-7 words. Focus on the main action/result only.
 
-Response to summarize:
 {text}
 
-Summary:"""
+5-7 word summary:"""
             }],
-            max_tokens=30,
+            max_tokens=20,
             temperature=0.3,
         )
 
@@ -119,11 +116,11 @@ def simple_summarize(text: str, max_words: int = 12) -> str:
     return summary
 
 
-def summarize_response(text: str, timeout: int = 2) -> str:
+def summarize_response(text: str, timeout: int = 8) -> str:
     """
     Summarize Claude's response in one short sentence.
 
-    Tries LLMs in order: Anthropic -> OpenAI -> Simple fallback
+    Tries LLMs in order: OpenAI -> Anthropic -> Completion messages
 
     Args:
         text: The response text to summarize
@@ -135,13 +132,13 @@ def summarize_response(text: str, timeout: int = 2) -> str:
     if not text or not text.strip():
         return "Task complete"
 
-    # Try Anthropic first (Haiku)
-    summary = summarize_with_anthropic(text, timeout)
+    # Try OpenAI first (user has this API key)
+    summary = summarize_with_openai(text, timeout)
     if summary:
         return summary
 
-    # Try OpenAI as fallback
-    summary = summarize_with_openai(text, timeout)
+    # Try Anthropic as fallback
+    summary = summarize_with_anthropic(text, timeout)
     if summary:
         return summary
 

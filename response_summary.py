@@ -90,12 +90,12 @@ def summarize_and_announce(transcript_path: str):
 
         if summarizer_script.exists():
             try:
-                # Call summarizer with 5 second timeout (execute directly to use uv shebang)
+                # Call summarizer with 10 second timeout (execute directly to use uv shebang)
                 result = subprocess.run(
                     [str(summarizer_script), response_text],
                     capture_output=True,
                     text=True,
-                    timeout=5
+                    timeout=10
                 )
 
                 if result.returncode == 0 and result.stdout.strip():
@@ -200,6 +200,13 @@ def main():
 
     except Exception as e:
         # Log all other errors
+        import traceback
+        error_msg = f"ERROR: {type(e).__name__}: {str(e)}\n{traceback.format_exc()}"
+        try:
+            with open('/tmp/response_summary_error.txt', 'a') as f:
+                f.write(f"{datetime.now()}: {error_msg}\n")
+        except:
+            pass
         try:
             script_dir = Path(__file__).parent
             log_dir = script_dir / "logs"
