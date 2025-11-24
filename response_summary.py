@@ -10,6 +10,7 @@ import json
 import os
 import sys
 import subprocess
+import fcntl
 from pathlib import Path
 from datetime import datetime
 
@@ -336,9 +337,28 @@ def main():
             debug_log("Feature disabled, exiting")
             sys.exit(0)  # Feature disabled
 
-        # Summarize and announce the response
-        debug_log("Calling summarize_and_announce")
-        metadata = summarize_and_announce(transcript_path)
+        # Acquire exclusive lock to prevent concurrent executions across multiple Claude Code sessions
+        lock_file = Path("/tmp/claude_response_summary.lock")
+        try:
+            lock_fd = open(lock_file, 'w')
+            fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            debug_log("Lock acquired")
+        except (IOError, OSError):
+            debug_log("Another instance is running, exiting gracefully")
+            sys.exit(0)  # Another instance is already playing audio
+
+        try:
+            # Summarize and announce the response
+            debug_log("Calling summarize_and_announce")
+            metadata = summarize_and_announce(transcript_path)
+        finally:
+            # Release lock
+            try:
+                fcntl.flock(lock_fd, fcntl.LOCK_UN)
+                lock_fd.close()
+                debug_log("Lock released")
+            except:
+                pass
 
         # Debug logging
         script_dir = Path(__file__).parent
