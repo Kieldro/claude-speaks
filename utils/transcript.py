@@ -61,16 +61,16 @@ def get_latest_assistant_responses(transcript_path: str, limit: int = 5) -> List
 
 def get_combined_response(transcript_path: str, max_chars: Optional[int] = None) -> Optional[str]:
     """
-    Get the latest assistant responses combined into a single text.
+    Get the latest assistant response.
 
     Args:
         transcript_path: Path to the JSONL transcript file
         max_chars: Maximum characters to return (None = no limit)
 
     Returns:
-        Combined response text or None if no responses found
+        Latest response text or None if no responses found
     """
-    responses = get_latest_assistant_responses(transcript_path, limit=3)
+    responses = get_latest_assistant_responses(transcript_path, limit=1)
 
     if not responses:
         return None
