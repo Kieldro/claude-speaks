@@ -91,3 +91,4 @@ Voices in README.md. To add a new voice:
 1. Set `ELEVENLABS_VOICE_ID` in `~/.env`
 2. Run `python3 utils/tts/generate_cache.py`
 3. New folder created: `utils/tts/cache/{voice_id}/`
+- only commit cached files that don't have session ids
