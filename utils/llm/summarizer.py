@@ -28,48 +28,40 @@ except ImportError:
     get_completion_messages = None
 
 
-def summarize_with_ollama(text: str, timeout: int = 3) -> str:
-    """Summarize text using local Ollama model (fastest, runs locally)."""
+def summarize_with_groq(text: str, timeout: int = 5) -> str:
+    """Summarize text using Groq (fastest cloud inference, ~0.5s)."""
     try:
-        import requests
+        from openai import OpenAI
 
-        ollama_host = os.getenv("OLLAMA_HOST", "http://localhost:11434")
-        ollama_model = os.getenv("OLLAMA_MODEL", "qwen2.5:3b")
+        api_key = os.getenv("GROQ_API_KEY")
+        if not api_key:
+            return None
 
-        # Check if Ollama is available
-        try:
-            requests.get(f"{ollama_host}/api/tags", timeout=1)
-        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
-            return None  # Ollama not running
+        client = OpenAI(
+            api_key=api_key,
+            base_url="https://api.groq.com/openai/v1",
+            timeout=timeout
+        )
 
-        # Generate summary using Ollama
-        response = requests.post(
-            f"{ollama_host}/api/generate",
-            json={
-                "model": ollama_model,
-                "prompt": f"""Summarize this Claude Code assistant response in one concise sentence, as if Claude Code is speaking.
+        response = client.chat.completions.create(
+            model="llama-3.1-8b-instant",  # Fast model
+            messages=[{
+                "role": "user",
+                "content": f"""Summarize this Claude Code assistant response in one concise sentence, as if Claude Code is speaking.
 Be natural-sounding for text-to-speech.
 
 {text}
 
-Summary (Claude Code speaking):""",
-                "stream": False,
-                "options": {
-                    "temperature": 0.3,
-                    "num_predict": 100
-                }
-            },
-            timeout=timeout
+Summary (Claude Code speaking):"""
+            }],
+            max_tokens=100,
+            temperature=0.3,
         )
 
-        if response.status_code == 200:
-            data = response.json()
-            summary = data.get("response", "").strip()
-            # Remove quotes if present
-            summary = summary.strip('"').strip("'")
-            return summary if summary else None
-
-        return None
+        summary = response.choices[0].message.content.strip()
+        # Remove quotes if present
+        summary = summary.strip('"').strip("'")
+        return summary
 
     except Exception:
         return None
@@ -168,7 +160,7 @@ def summarize_response(text: str, timeout: int = 8) -> str:
     """
     Summarize Claude's response in one concise sentence, in Claude Code's voice.
 
-    Tries LLMs in order: Ollama (local) -> OpenAI -> Anthropic -> Completion messages
+    Tries LLMs in order: Groq (~0.5s) -> OpenAI -> Anthropic -> Completion messages
 
     Args:
         text: The response text to summarize
@@ -180,8 +172,8 @@ def summarize_response(text: str, timeout: int = 8) -> str:
     if not text or not text.strip():
         return "Task complete"
 
-    # Try Ollama first (fastest, local, ~200-500ms)
-    summary = summarize_with_ollama(text, timeout=3)
+    # Try Groq first (fastest, ~0.5s)
+    summary = summarize_with_groq(text, timeout=5)
     if summary:
         return summary
 

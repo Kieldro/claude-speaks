@@ -124,11 +124,21 @@ def summarize_and_announce(transcript_path: str):
     # Play instant notification sound (non-blocking) to indicate hook started
     try:
         debug_log("Playing start notification")
-        subprocess.Popen(
-            ['paplay', '/usr/share/sounds/freedesktop/stereo/message-new-instant.oga'],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL
-        )
+        import platform
+        if platform.system() == 'Darwin':
+            # macOS - use system sound
+            subprocess.Popen(
+                ['afplay', '/System/Library/Sounds/Ping.aiff'],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+        else:
+            # Linux - use freedesktop sound
+            subprocess.Popen(
+                ['paplay', '/usr/share/sounds/freedesktop/stereo/message-new-instant.oga'],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
         debug_log("Start notification spawned")
     except Exception as e:
         debug_log("Start notification failed", {"error": str(e)})
