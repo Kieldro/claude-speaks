@@ -43,17 +43,17 @@ def get_tts_script_path():
         return str(cached_tts_script)
 
     # Fallback to non-cached scripts if cached_tts doesn't exist
-    # Check for ElevenLabs API key (highest priority)
-    if os.getenv('ELEVENLABS_API_KEY'):
-        elevenlabs_script = tts_dir / "elevenlabs_tts.py"
-        if elevenlabs_script.exists():
-            return str(elevenlabs_script)
-
-    # Check for OpenAI API key (second priority)
+    # Check for OpenAI API key (highest priority - fastest and cheapest)
     if os.getenv('OPENAI_API_KEY'):
         openai_script = tts_dir / "openai_tts.py"
         if openai_script.exists():
             return str(openai_script)
+
+    # Check for ElevenLabs API key (second priority - higher quality but more expensive)
+    if os.getenv('ELEVENLABS_API_KEY'):
+        elevenlabs_script = tts_dir / "elevenlabs_tts.py"
+        if elevenlabs_script.exists():
+            return str(elevenlabs_script)
 
     # Fall back to system voice (no API key required)
     system_voice_script = tts_dir / "system_voice_tts.py"
@@ -257,23 +257,42 @@ def main():
         include_session_id = os.getenv('CLAUDE_SESSION_ID_ENABLED', 'false').lower() in ('true', '1', 'yes')
 
         # Announce completion via TTS with optional session identifier
-        announce_completion(session_id, include_session_id)
+        metadata = announce_completion(session_id, include_session_id)
 
-        # Logging commented out for performance - file I/O blocks hook completion
-        # script_dir = Path(__file__).parent
-        # log_dir = script_dir / "logs"
-        # log_dir.mkdir(parents=True, exist_ok=True)
-        # log_path = log_dir / "stop.jsonl"
-        #
-        # input_data['timestamp'] = datetime.now().isoformat()
-        # append_log_entry(log_path, input_data)
+        # Debug logging
+        script_dir = Path(__file__).parent
+        log_dir = script_dir / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_path = log_dir / "stop.jsonl"
+
+        input_data['timestamp'] = datetime.now().isoformat()
+        input_data['metadata'] = metadata
+        append_log_entry(log_path, input_data)
 
         sys.exit(0)
 
-    except json.JSONDecodeError:
-        sys.exit(0)  # Fail gracefully on JSON errors
-    except Exception:
-        sys.exit(0)  # Fail gracefully on any errors
+    except json.JSONDecodeError as e:
+        # Log JSON errors
+        try:
+            script_dir = Path(__file__).parent
+            log_dir = script_dir / "logs"
+            log_dir.mkdir(parents=True, exist_ok=True)
+            log_path = log_dir / "stop.jsonl"
+            append_log_entry(log_path, {"error": "JSONDecodeError", "details": str(e), "timestamp": datetime.now().isoformat()})
+        except:
+            pass
+        sys.exit(0)
+    except Exception as e:
+        # Log all other errors
+        try:
+            script_dir = Path(__file__).parent
+            log_dir = script_dir / "logs"
+            log_dir.mkdir(parents=True, exist_ok=True)
+            log_path = log_dir / "stop.jsonl"
+            append_log_entry(log_path, {"error": type(e).__name__, "details": str(e), "timestamp": datetime.now().isoformat()})
+        except:
+            pass
+        sys.exit(0)
 
 
 if __name__ == "__main__":

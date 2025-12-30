@@ -55,30 +55,36 @@ def get_cached_audio_path(text):
 
 def play_audio(audio_file):
     """Play audio file using available system player (non-blocking)."""
+    # Preserve audio environment variables for PipeWire/PulseAudio
+    env = os.environ.copy()
+
     try:
         # macOS - spawn in background to avoid blocking
         subprocess.Popen(
             ['afplay', str(audio_file)],
             stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL
+            stderr=subprocess.DEVNULL,
+            env=env
         )
         return True
     except FileNotFoundError:
         try:
-            # Linux with mpg123 (best for MP3)
+            # Linux with ffplay (primary - works with PipeWire)
             subprocess.Popen(
-                ['mpg123', '-q', str(audio_file)],
+                ['ffplay', '-nodisp', '-autoexit', '-loglevel', 'error', '-volume', '100', str(audio_file)],
                 stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL
+                stderr=subprocess.DEVNULL,
+                env=env
             )
             return True
         except FileNotFoundError:
             try:
-                # Linux with ffplay (fallback)
+                # Linux with mpg123 (fallback)
                 subprocess.Popen(
-                    ['ffplay', '-nodisp', '-autoexit', '-loglevel', 'quiet', str(audio_file)],
+                    ['mpg123', '-q', str(audio_file)],
                     stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL
+                    stderr=subprocess.DEVNULL,
+                    env=env
                 )
                 return True
             except FileNotFoundError:
@@ -88,21 +94,21 @@ def play_audio(audio_file):
 def get_tts_script_path():
     """
     Determine which TTS script to use based on available API keys.
-    Priority order: ElevenLabs > OpenAI > system voice (spd-say/espeak)
+    Priority order: OpenAI > ElevenLabs > system voice (spd-say/espeak)
     """
     script_dir = Path(__file__).parent
 
-    # Check for ElevenLabs API key (highest priority)
-    if os.getenv('ELEVENLABS_API_KEY'):
-        elevenlabs_script = script_dir / "elevenlabs_tts.py"
-        if elevenlabs_script.exists():
-            return str(elevenlabs_script)
-
-    # Check for OpenAI API key (second priority)
+    # Check for OpenAI API key (highest priority - fastest and cheapest)
     if os.getenv('OPENAI_API_KEY'):
         openai_script = script_dir / "openai_tts.py"
         if openai_script.exists():
             return str(openai_script)
+
+    # Check for ElevenLabs API key (second priority - higher quality but more expensive)
+    if os.getenv('ELEVENLABS_API_KEY'):
+        elevenlabs_script = script_dir / "elevenlabs_tts.py"
+        if elevenlabs_script.exists():
+            return str(elevenlabs_script)
 
     # Fall back to system voice (no API key required)
     system_voice_script = script_dir / "system_voice_tts.py"
@@ -188,6 +194,7 @@ def speak_with_cache(text, verbose=False):
         # If playback failed, continue to regenerate
 
     # Check if we can cache (ElevenLabs only)
+    elevenlabs_success = False
     if os.getenv('ELEVENLABS_API_KEY'):
         voice_id = os.getenv('ELEVENLABS_VOICE_ID', DEFAULT_VOICE_ID)
         result["tts_backend"] = "elevenlabs"
@@ -195,22 +202,26 @@ def speak_with_cache(text, verbose=False):
         # Generate and cache audio
         if generate_and_cache_audio(text, cached_audio):
             if play_audio(cached_audio):
+                elevenlabs_success = True
                 return result
 
-    # Fall back to regular TTS (no caching for OpenAI/system voice)
-    result["fallback_used"] = True
-    tts_script = get_tts_script_path()
-    if tts_script:
-        result["tts_backend"] = Path(tts_script).stem
-        try:
-            subprocess.run(
-                [sys.executable, tts_script, text],
-                capture_output=True,
-                timeout=2
-            )
-            return result
-        except (subprocess.TimeoutExpired, subprocess.SubprocessError):
-            pass
+    # Fall back to regular TTS if ElevenLabs failed or unavailable
+    if not elevenlabs_success:
+        result["fallback_used"] = True
+        tts_script = get_tts_script_path()
+        if tts_script:
+            result["tts_backend"] = Path(tts_script).stem
+            try:
+                # Run TTS script synchronously to ensure completion
+                subprocess.run(
+                    [sys.executable, tts_script, text],
+                    capture_output=True,
+                    timeout=5,
+                    check=False
+                )
+                return result
+            except (subprocess.TimeoutExpired, subprocess.SubprocessError):
+                pass
 
     return result
 
