@@ -11,7 +11,6 @@
 
 import os
 import sys
-import random
 from pathlib import Path
 
 try:
@@ -20,12 +19,13 @@ try:
 except ImportError:
     pass
 
-# Import completion messages for fallback
-sys.path.insert(0, str(Path(__file__).parent.parent))
-try:
-    from messages import get_completion_messages
-except ImportError:
-    get_completion_messages = None
+# Shared summarization config
+SUMMARY_MAX_TOKENS = 40
+SUMMARY_PROMPT = """Summarize this in under 12 words, speaking as Claude Code. Be direct.
+
+{text}
+
+Summary:"""
 
 
 def summarize_with_groq(text: str, timeout: int = 5) -> str:
@@ -45,16 +45,8 @@ def summarize_with_groq(text: str, timeout: int = 5) -> str:
 
         response = client.chat.completions.create(
             model="llama-3.1-8b-instant",  # Fast model
-            messages=[{
-                "role": "user",
-                "content": f"""Summarize this Claude Code assistant response in one concise sentence, as if Claude Code is speaking.
-Be natural-sounding for text-to-speech.
-
-{text}
-
-Summary (Claude Code speaking):"""
-            }],
-            max_tokens=100,
+            messages=[{"role": "user", "content": SUMMARY_PROMPT.format(text=text)}],
+            max_tokens=SUMMARY_MAX_TOKENS,
             temperature=0.3,
         )
 
@@ -80,16 +72,8 @@ def summarize_with_openai(text: str, timeout: int = 8) -> str:
 
         response = client.chat.completions.create(
             model="gpt-4o-mini",
-            messages=[{
-                "role": "user",
-                "content": f"""Summarize this Claude Code assistant response in one concise sentence, as if Claude Code is speaking.
-Be natural-sounding for text-to-speech.
-
-{text}
-
-Summary (Claude Code speaking):"""
-            }],
-            max_tokens=100,
+            messages=[{"role": "user", "content": SUMMARY_PROMPT.format(text=text)}],
+            max_tokens=SUMMARY_MAX_TOKENS,
             temperature=0.3,
         )
 
@@ -115,18 +99,9 @@ def summarize_with_anthropic(text: str, timeout: int = 2) -> str:
 
         response = client.messages.create(
             model="claude-3-5-haiku-20241022",
-            max_tokens=100,
+            max_tokens=SUMMARY_MAX_TOKENS,
             temperature=0.3,
-            messages=[{
-                "role": "user",
-                "content": f"""Summarize this Claude Code assistant response in one concise sentence, as if Claude Code is speaking.
-Be natural-sounding for text-to-speech.
-
-Response to summarize:
-{text}
-
-Summary (Claude Code speaking):"""
-            }]
+            messages=[{"role": "user", "content": SUMMARY_PROMPT.format(text=text)}]
         )
 
         summary = response.content[0].text.strip()
@@ -187,12 +162,8 @@ def summarize_response(text: str, timeout: int = 8) -> str:
     if summary:
         return summary
 
-    # Final fallback: use completion messages
-    if get_completion_messages:
-        messages = get_completion_messages()
-        return random.choice(messages)
-    else:
-        return "Task complete"
+    # Simple truncation fallback
+    return simple_summarize(text)
 
 
 def main():
