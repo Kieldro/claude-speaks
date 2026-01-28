@@ -254,8 +254,12 @@ def summarize_and_announce(transcript_path: str):
                 safe_env = {
                     'PATH': os.environ.get('PATH', ''),
                     'HOME': os.environ.get('HOME', ''),
+                    'USER': os.environ.get('USER', ''),
+                    'TMPDIR': os.environ.get('TMPDIR', '/tmp'),
                     'TTS_VOLUME': os.getenv('TTS_VOLUME', '0'),
-                    # Audio environment variables needed for PulseAudio/PipeWire
+                    # macOS audio session
+                    'TERM': os.environ.get('TERM', 'xterm-256color'),
+                    # Linux audio (PulseAudio/PipeWire)
                     'XDG_RUNTIME_DIR': os.environ.get('XDG_RUNTIME_DIR', ''),
                     'DBUS_SESSION_BUS_ADDRESS': os.environ.get('DBUS_SESSION_BUS_ADDRESS', ''),
                 }
@@ -269,13 +273,17 @@ def summarize_and_announce(transcript_path: str):
                     safe_env['OPENAI_API_KEY'] = os.getenv('OPENAI_API_KEY', '')
                     safe_env['OPENAI_TTS_DEBUG'] = os.getenv('OPENAI_TTS_DEBUG', 'false')
 
-                # Use Popen with process group to ensure child processes (mpg123) are killed on timeout
+                # On Linux, use new session to kill mpg123 process group on timeout
+                # On macOS, don't use new session as it breaks audio output
+                import platform
+                use_new_session = platform.system() != 'Darwin'
+
                 process = subprocess.Popen(
                     [tts_script, sanitized_summary],
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                     env=safe_env,
-                    start_new_session=True  # Create new process group
+                    start_new_session=use_new_session
                 )
 
                 try:
@@ -288,10 +296,14 @@ def summarize_and_announce(transcript_path: str):
                         "stderr": stderr.decode(errors='replace') if stderr else ""
                     })
                 except subprocess.TimeoutExpired:
-                    # Kill entire process group to ensure mpg123 is terminated
+                    # Kill process (and process group on Linux)
                     try:
-                        os.killpg(os.getpgid(process.pid), signal.SIGTERM)
-                        debug_log("Killed TTS process group due to timeout")
+                        if use_new_session:
+                            os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+                            debug_log("Killed TTS process group due to timeout")
+                        else:
+                            process.kill()
+                            debug_log("Killed TTS process due to timeout")
                     except:
                         process.kill()
                     process.wait()

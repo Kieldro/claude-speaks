@@ -21,7 +21,12 @@ except ImportError:
 
 # Shared summarization config
 SUMMARY_MAX_TOKENS = 40
-SUMMARY_PROMPT = """Summarize this in under 12 words, speaking as Claude Code. Be direct.
+SUMMARY_PROMPT = """State what you did in under 12 words, first person, for TTS.
+
+Good: "I fixed the login bug and added tests."
+Good: "I updated the config file."
+Bad: "Done! - Claude Code"
+Bad: "The refactoring has been completed successfully."
 
 {text}
 
@@ -135,7 +140,7 @@ def summarize_response(text: str, timeout: int = 8) -> str:
     """
     Summarize Claude's response in one concise sentence, in Claude Code's voice.
 
-    Tries LLMs in order: Groq (~0.5s) -> OpenAI -> Anthropic -> Completion messages
+    Tries LLMs in order: Anthropic -> OpenAI -> Groq -> Simple truncation
 
     Args:
         text: The response text to summarize
@@ -147,18 +152,18 @@ def summarize_response(text: str, timeout: int = 8) -> str:
     if not text or not text.strip():
         return "Task complete"
 
-    # Try Groq first (fastest, ~0.5s)
-    summary = summarize_with_groq(text, timeout=5)
+    # Try Anthropic first (good quality, ~0.8s warm)
+    summary = summarize_with_anthropic(text, timeout)
     if summary:
         return summary
 
-    # Try OpenAI as fallback (~2-3s)
+    # Try OpenAI as fallback
     summary = summarize_with_openai(text, timeout)
     if summary:
         return summary
 
-    # Try Anthropic as fallback
-    summary = summarize_with_anthropic(text, timeout)
+    # Try Groq last (fast but lower quality)
+    summary = summarize_with_groq(text, timeout=5)
     if summary:
         return summary
 
