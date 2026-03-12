@@ -1,0 +1,30 @@
+{
+  "hooks": {
+    "Notification": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ~/.claude/hooks/notification.py"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ~/.claude/hooks/stop.py"
+          },
+          {
+            "type": "command",
+            "command": "python3 ~/.claude/hooks/response_summary.py"
+          }
+        ]
+      }
+    ]
+  }
+}

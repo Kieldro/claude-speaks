@@ -11,7 +11,6 @@
 
 import os
 import sys
-import random
 from pathlib import Path
 
 try:
@@ -20,56 +19,41 @@ try:
 except ImportError:
     pass
 
-# Import completion messages for fallback
-sys.path.insert(0, str(Path(__file__).parent.parent))
-try:
-    from messages import get_completion_messages
-except ImportError:
-    get_completion_messages = None
+# Shared summarization config
+SUMMARY_MAX_TOKENS = 40
+SUMMARY_PROMPT = """Summarize the following text in under 12 words. Output ONLY the summary sentence and nothing else.
 
-
-def summarize_with_ollama(text: str, timeout: int = 3) -> str:
-    """Summarize text using local Ollama model (fastest, runs locally)."""
-    try:
-        import requests
-
-        ollama_host = os.getenv("OLLAMA_HOST", "http://localhost:11434")
-        ollama_model = os.getenv("OLLAMA_MODEL", "qwen2.5:3b")
-
-        # Check if Ollama is available
-        try:
-            requests.get(f"{ollama_host}/api/tags", timeout=1)
-        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
-            return None  # Ollama not running
-
-        # Generate summary using Ollama
-        response = requests.post(
-            f"{ollama_host}/api/generate",
-            json={
-                "model": ollama_model,
-                "prompt": f"""Summarize this Claude Code assistant response in one concise sentence, as if Claude Code is speaking.
-Be natural-sounding for text-to-speech.
-
+<text>
 {text}
+</text>"""
 
-Summary (Claude Code speaking):""",
-                "stream": False,
-                "options": {
-                    "temperature": 0.3,
-                    "num_predict": 100
-                }
-            },
+
+def summarize_with_groq(text: str, timeout: int = 5) -> str:
+    """Summarize text using Groq (fastest cloud inference, ~0.5s)."""
+    try:
+        from openai import OpenAI
+
+        api_key = os.getenv("GROQ_API_KEY")
+        if not api_key:
+            return None
+
+        client = OpenAI(
+            api_key=api_key,
+            base_url="https://api.groq.com/openai/v1",
             timeout=timeout
         )
 
-        if response.status_code == 200:
-            data = response.json()
-            summary = data.get("response", "").strip()
-            # Remove quotes if present
-            summary = summary.strip('"').strip("'")
-            return summary if summary else None
+        response = client.chat.completions.create(
+            model="llama-3.1-8b-instant",  # Fast model
+            messages=[{"role": "user", "content": SUMMARY_PROMPT.format(text=text)}],
+            max_tokens=SUMMARY_MAX_TOKENS,
+            temperature=0.3,
+        )
 
-        return None
+        summary = response.choices[0].message.content.strip()
+        # Remove quotes if present
+        summary = summary.strip('"').strip("'")
+        return summary
 
     except Exception:
         return None
@@ -88,16 +72,8 @@ def summarize_with_openai(text: str, timeout: int = 8) -> str:
 
         response = client.chat.completions.create(
             model="gpt-4o-mini",
-            messages=[{
-                "role": "user",
-                "content": f"""Summarize this Claude Code assistant response in one concise sentence, as if Claude Code is speaking.
-Be natural-sounding for text-to-speech.
-
-{text}
-
-Summary (Claude Code speaking):"""
-            }],
-            max_tokens=100,
+            messages=[{"role": "user", "content": SUMMARY_PROMPT.format(text=text)}],
+            max_tokens=SUMMARY_MAX_TOKENS,
             temperature=0.3,
         )
 
@@ -123,18 +99,9 @@ def summarize_with_anthropic(text: str, timeout: int = 2) -> str:
 
         response = client.messages.create(
             model="claude-3-5-haiku-20241022",
-            max_tokens=100,
+            max_tokens=SUMMARY_MAX_TOKENS,
             temperature=0.3,
-            messages=[{
-                "role": "user",
-                "content": f"""Summarize this Claude Code assistant response in one concise sentence, as if Claude Code is speaking.
-Be natural-sounding for text-to-speech.
-
-Response to summarize:
-{text}
-
-Summary (Claude Code speaking):"""
-            }]
+            messages=[{"role": "user", "content": SUMMARY_PROMPT.format(text=text)}]
         )
 
         summary = response.content[0].text.strip()
@@ -164,51 +131,53 @@ def simple_summarize(text: str, max_words: int = 12) -> str:
     return summary
 
 
-def summarize_response(text: str, timeout: int = 8) -> str:
+def summarize_response(text: str, timeout: int = 8) -> tuple[str, str]:
     """
     Summarize Claude's response in one concise sentence, in Claude Code's voice.
 
-    Tries LLMs in order: Ollama (local) -> OpenAI -> Anthropic -> Completion messages
+    Tries LLMs in order: Anthropic -> OpenAI -> Groq -> Simple truncation
 
     Args:
         text: The response text to summarize
         timeout: Timeout in seconds for LLM calls
 
     Returns:
-        A concise summary sentence as if Claude Code is speaking
+        Tuple of (summary, provider) where provider is the name of the model used
     """
     if not text or not text.strip():
-        return "Task complete"
+        return "Task complete", "default"
 
-    # Try Ollama first (fastest, local, ~200-500ms)
-    summary = summarize_with_ollama(text, timeout=3)
-    if summary:
-        return summary
+    # Short responses don't need summarization - use as-is
+    words = text.split()
+    if len(words) <= 12:
+        return text.strip(), "passthrough"
 
-    # Try OpenAI as fallback (~2-3s)
-    summary = summarize_with_openai(text, timeout)
-    if summary:
-        return summary
-
-    # Try Anthropic as fallback
+    # Try Anthropic first (good quality, ~0.8s warm)
     summary = summarize_with_anthropic(text, timeout)
     if summary:
-        return summary
+        return summary, "anthropic/claude-3-5-haiku"
 
-    # Final fallback: use completion messages
-    if get_completion_messages:
-        messages = get_completion_messages()
-        return random.choice(messages)
-    else:
-        return "Task complete"
+    # Try OpenAI as fallback
+    summary = summarize_with_openai(text, timeout)
+    if summary:
+        return summary, "openai/gpt-4o-mini"
+
+    # Try Groq last (fast but lower quality)
+    summary = summarize_with_groq(text, timeout=5)
+    if summary:
+        return summary, "groq/llama-3.1-8b"
+
+    # Simple truncation fallback
+    return simple_summarize(text), "truncation"
 
 
 def main():
     """Test the summarizer from command line."""
     if len(sys.argv) > 1:
         text = " ".join(sys.argv[1:])
-        summary = summarize_response(text)
+        summary, provider = summarize_response(text)
         print(summary)
+        print(provider)
     else:
         # Test with sample text
         sample = """I'll add the cached sound files to .gitignore and commit the changes.
@@ -223,7 +192,9 @@ The commit includes:
 - Enhanced logging in `stop.py` with metadata and error tracking"""
 
         print("Sample text:", sample[:100] + "...")
-        print("\nSummary:", summarize_response(sample))
+        summary, provider = summarize_response(sample)
+        print(f"\nSummary: {summary}")
+        print(f"Provider: {provider}")
 
 
 if __name__ == "__main__":
