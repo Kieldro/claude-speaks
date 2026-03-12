@@ -4,105 +4,116 @@ Utility for reading and extracting Claude responses from conversation transcript
 """
 
 import json
-import hashlib
+import time
 from pathlib import Path
-from typing import List, Optional, Union, Tuple
+from typing import Optional
 
 
-def get_latest_assistant_responses(transcript_path: str, limit: int = 5, return_objects: bool = False) -> List[Union[str, dict]]:
+def _find_current_turn_start(lines: list) -> int:
     """
-    Extract the latest assistant text responses from a conversation transcript.
-
-    Args:
-        transcript_path: Path to the JSONL transcript file
-        limit: Maximum number of recent responses to return
-        return_objects: If True, returns dicts with {'text': str, 'id': str}, else just text strings
+    Find the index of the last real user message (not a tool_result).
+    This marks the start of the current conversation turn.
 
     Returns:
-        List of responses (newest first)
+        Index into lines, or 0 if not found.
     """
-    transcript_file = Path(transcript_path)
-    if not transcript_file.exists():
-        return []
-
-    responses = []
-
-    try:
-        # Read transcript in reverse to get latest messages first
-        with open(transcript_file, 'r') as f:
-            lines = f.readlines()
-
-        # Process lines in reverse order
-        for line in reversed(lines):
-            if len(responses) >= limit:
-                break
-
-            try:
-                entry = json.loads(line.strip())
-
-                # Look for assistant messages with text content
-                if entry.get('type') == 'assistant' and 'message' in entry:
-                    message = entry['message']
-                    if message.get('role') == 'assistant' and 'content' in message:
-                        # Extract text blocks from content
-                        for content_block in message['content']:
-                            if isinstance(content_block, dict) and content_block.get('type') == 'text':
-                                text = content_block.get('text', '').strip()
-                                if text:
-                                    if return_objects:
-                                        # Get ID or fallback to hash of text
-                                        msg_id = message.get('id')
-                                        if not msg_id:
-                                            msg_id = hashlib.md5(text.encode()).hexdigest()
-                                        responses.append({'text': text, 'id': msg_id})
-                                    else:
-                                        responses.append(text)
-                                    break  # Only take first text block per message
-
-            except json.JSONDecodeError:
-                continue  # Skip malformed lines
-
-    except Exception:
-        return []
-
-    return responses
+    for i in range(len(lines) - 1, -1, -1):
+        try:
+            entry = json.loads(lines[i].strip())
+            if entry.get('type') != 'user' or 'message' not in entry:
+                continue
+            message = entry['message']
+            if message.get('role') != 'user':
+                continue
+            content = message.get('content', [])
+            is_tool_result = any(
+                isinstance(b, dict) and b.get('type') == 'tool_result'
+                for b in content
+            )
+            if not is_tool_result:
+                return i
+        except (json.JSONDecodeError, KeyError):
+            continue
+    return 0
 
 
-def get_combined_response(transcript_path: str, max_chars: Optional[int] = None) -> Tuple[Optional[str], Optional[str]]:
+def _extract_text_from_turn(lines: list, turn_start: int) -> Optional[str]:
     """
-    Get the latest assistant response and its ID.
+    Extract the latest assistant text response from the current turn.
+
+    Args:
+        lines: All transcript lines
+        turn_start: Index of the current turn's user message
+
+    Returns:
+        The latest assistant text response in this turn, or None.
+    """
+    for i in range(len(lines) - 1, turn_start, -1):
+        try:
+            entry = json.loads(lines[i].strip())
+            if entry.get('type') != 'assistant' or 'message' not in entry:
+                continue
+            message = entry['message']
+            if message.get('role') != 'assistant' or 'content' not in message:
+                continue
+            for block in message['content']:
+                if isinstance(block, dict) and block.get('type') == 'text':
+                    text = block.get('text', '').strip()
+                    if text:
+                        return text
+        except (json.JSONDecodeError, KeyError):
+            continue
+    return None
+
+
+def get_combined_response(transcript_path: str, max_chars: Optional[int] = None,
+                          max_retries: int = 3, retry_delay: float = 0.15) -> Optional[str]:
+    """
+    Get the latest assistant response from the current turn.
+
+    Only returns responses from after the last real user message to avoid
+    returning stale responses from previous turns. Retries briefly if the
+    transcript hasn't been flushed yet.
 
     Args:
         transcript_path: Path to the JSONL transcript file
         max_chars: Maximum characters to return (None = no limit)
+        max_retries: Times to retry if current turn has no text response yet
+        retry_delay: Seconds to wait between retries
 
     Returns:
-        Tuple of (response_text, response_id) or (None, None) if no responses found
+        Latest response text or None if no responses found
     """
-    responses = get_latest_assistant_responses(transcript_path, limit=1, return_objects=True)
+    transcript_file = Path(transcript_path)
+    if not transcript_file.exists():
+        return None
 
-    if not responses:
-        return None, None
+    for attempt in range(max_retries + 1):
+        try:
+            with open(transcript_file, 'r') as f:
+                lines = f.readlines()
+        except Exception:
+            return None
 
-    # Get the latest response (responses[0] because it's reversed/newest-first)
-    latest = responses[0]
-    text = latest['text']
-    msg_id = latest['id']
+        turn_start = _find_current_turn_start(lines)
+        text = _extract_text_from_turn(lines, turn_start)
 
-    # Truncate if max_chars specified
-    if max_chars and len(text) > max_chars:
-        text = text[:max_chars] + '...'
+        if text:
+            if max_chars and len(text) > max_chars:
+                text = text[:max_chars] + '...'
+            return text
 
-    return text, msg_id
+        if attempt < max_retries:
+            time.sleep(retry_delay)
+
+    return None
 
 
 if __name__ == '__main__':
-    # Simple test
     import sys
     if len(sys.argv) > 1:
-        transcript = sys.argv[1]
-        responses = get_latest_assistant_responses(transcript, return_objects=True)
-        print(f"Found {len(responses)} responses:")
-        for i, resp in enumerate(responses, 1):
-            print(f"\n--- Response {i} (ID: {resp['id']}) ---")
-            print(resp['text'][:200] + '...' if len(resp['text']) > 200 else resp['text'])
+        text = get_combined_response(sys.argv[1])
+        if text:
+            print(text[:500] + '...' if len(text) > 500 else text)
+        else:
+            print("No response found in current turn")

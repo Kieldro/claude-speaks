@@ -30,10 +30,10 @@ def speak(text):
 
         client = OpenAI(api_key=api_key)
 
-        # Generate audio using TTS-1 (standard quality, fast)
+        # Generate audio using TTS-1-HD (higher quality)
         response = client.audio.speech.create(
-            model="tts-1",
-            voice="ash",
+            model="tts-1-hd",
+            voice="nova",
             input=text
         )
 

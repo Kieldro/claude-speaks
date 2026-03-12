@@ -12,7 +12,6 @@ import sys
 import subprocess
 import signal
 import fcntl
-import time
 from pathlib import Path
 from datetime import datetime
 
@@ -79,6 +78,63 @@ def debug_log(message: str, data: dict = None):
         pass  # Fail silently on logging errors
 
 
+def get_topic_identifier(cwd: str = None) -> str | None:
+    """Derive a short topic identifier from the current git branch name.
+
+    Uses up to 2 descriptive words from the branch to differentiate sessions
+    working on similar domains (e.g., multiple invoice-related stories).
+
+    Args:
+        cwd: Working directory of the Claude session (to find the right git repo)
+
+    Examples:
+        star-1234/fix-invoice-search     → "Invoice Search"
+        star-5678/add-invoice-validation → "Invoice Validation"
+        star-9999/update-payment-terms   → "Payment Terms"
+        feat/improve-payments            → "Payments"
+        mac                              → "Mac"
+        master / main                    → None
+    """
+    try:
+        result = subprocess.run(
+            ['git', 'rev-parse', '--abbrev-ref', 'HEAD'],
+            capture_output=True, text=True, timeout=2,
+            cwd=cwd
+        )
+        if result.returncode != 0:
+            return None
+
+        branch = result.stdout.strip()
+
+        # Skip default branches
+        if branch in ('master', 'main', 'HEAD', 'develop'):
+            return None
+
+        # Take part after last '/' (e.g., "star-1234/fix-invoice-search" → "fix-invoice-search")
+        if '/' in branch:
+            branch = branch.rsplit('/', 1)[-1]
+
+        # Strip common verb prefixes
+        for prefix in ('fix-', 'feat-', 'add-', 'update-', 'refactor-', 'chore-', 'bug-', 'hotfix-'):
+            if branch.lower().startswith(prefix):
+                branch = branch[len(prefix):]
+                break
+
+        # Split on hyphens/underscores, take up to 2 most descriptive words
+        words = [w for w in branch.replace('_', '-').split('-') if w and len(w) > 1]
+        if not words:
+            return None
+
+        # Sort by length descending, take top 2, then restore original order
+        ranked = sorted(enumerate(words), key=lambda x: len(x[1]), reverse=True)[:2]
+        picked = sorted(ranked, key=lambda x: x[0])  # restore order
+
+        return ' '.join(w.capitalize() for _, w in picked)
+
+    except Exception:
+        return None
+
+
 def get_tts_script_path():
     """
     Get the TTS script path for summaries.
@@ -107,12 +163,13 @@ def get_tts_script_path():
     return None
 
 
-def summarize_and_announce(transcript_path: str):
+def summarize_and_announce(transcript_path: str, cwd: str = None):
     """
     Extract, summarize, and announce Claude's response via TTS.
 
     Args:
         transcript_path: Path to conversation transcript
+        cwd: Working directory of the Claude session
 
     Returns:
         dict: Metadata about the operation
@@ -121,6 +178,28 @@ def summarize_and_announce(transcript_path: str):
         "transcript_path": transcript_path,
         "cwd": os.getcwd()
     })
+
+    # Play instant notification sound (non-blocking) to indicate hook started
+    try:
+        debug_log("Playing start notification")
+        import platform
+        if platform.system() == 'Darwin':
+            # macOS - use system sound
+            subprocess.Popen(
+                ['afplay', '/System/Library/Sounds/Ping.aiff'],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+        else:
+            # Linux - use freedesktop sound
+            subprocess.Popen(
+                ['paplay', '/usr/share/sounds/freedesktop/stereo/message-new-instant.oga'],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+        debug_log("Start notification spawned")
+    except Exception as e:
+        debug_log("Start notification failed", {"error": str(e)})
 
     metadata = {
         "tts_triggered": False,
@@ -131,43 +210,11 @@ def summarize_and_announce(transcript_path: str):
     }
 
     try:
-        # The Stop hook fires before the current response is written to the
-        # transcript. Wait for the file to grow, indicating new content.
-        transcript_file = Path(transcript_path)
-        initial_size = transcript_file.stat().st_size if transcript_file.exists() else 0
-        debug_log("Waiting for transcript update", {"initial_size": initial_size})
-
-        retry_delays = [0.1, 0.1, 0.2, 0.3, 0.3, 0.5, 0.5, 0.5, 0.5, 0.5]
-        for attempt, delay in enumerate(retry_delays):
-            time.sleep(delay)
-            current_size = transcript_file.stat().st_size if transcript_file.exists() else 0
-            debug_log(f"Poll {attempt + 1}/{len(retry_delays)}", {
-                "current_size": current_size,
-                "grew": current_size > initial_size,
-                "delay": delay
-            })
-            if current_size > initial_size:
-                debug_log("Transcript updated", {"grew_by": current_size - initial_size})
-                break
-        else:
-            debug_log("Transcript did not grow after retries, reading anyway")
-
-        # Play notification sound now that transcript is ready
-        try:
-            subprocess.Popen(
-                ['paplay', '/usr/share/sounds/freedesktop/stereo/message-new-instant.oga'],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL
-            )
-        except Exception:
-            pass
-
-        # Extract Claude's latest response
+        # Extract Claude's latest response from transcript
         debug_log("Extracting response from transcript")
-        response_text, response_id = get_combined_response(transcript_path)
+        response_text = get_combined_response(transcript_path)
         debug_log("Response extraction complete", {
             "response_length": len(response_text) if response_text else 0,
-            "response_id": response_id,
             "response_preview": response_text[:100] if response_text else "None"
         })
 
@@ -213,10 +260,12 @@ def summarize_and_announce(transcript_path: str):
                 })
 
                 if result.returncode == 0 and result.stdout.strip():
-                    summary = result.stdout.strip()
+                    lines = result.stdout.strip().splitlines()
+                    summary = lines[0]
+                    provider = lines[1] if len(lines) > 1 else "unknown"
                     metadata["summary"] = summary
-                    metadata["summary_method"] = "llm"
-                    debug_log("Using LLM summary", {"summary": summary})
+                    metadata["summary_method"] = provider
+                    debug_log("Using LLM summary", {"summary": summary, "provider": provider})
                 else:
                     # Fallback: use first 10 words
                     words = response_text.split()[:10]
@@ -240,6 +289,13 @@ def summarize_and_announce(transcript_path: str):
             metadata["summary_method"] = "no_summarizer"
             debug_log("No summarizer script found, using fallback", {"summary": summary})
 
+        # Prepend topic identifier from git branch
+        topic = get_topic_identifier(cwd)
+        if topic:
+            summary = f"{topic}: {summary}"
+            metadata["topic"] = topic
+        debug_log("Topic identifier", {"topic": topic})
+
         # Speak the summary via TTS (detached process survives hook exit)
         tts_script = get_tts_script_path()
 
@@ -250,23 +306,25 @@ def summarize_and_announce(transcript_path: str):
         })
 
         if tts_script and summary:
-            # Run TTS synchronously - system voice is fast enough
+            # Fire-and-forget TTS - don't block the hook
             try:
-                # Sanitize summary before passing to subprocess
                 sanitized_summary = sanitize_text(summary, max_length=500)
 
-                debug_log("Running TTS synchronously", {
-                    "executable": sys.executable,
+                debug_log("Spawning TTS (fire-and-forget)", {
                     "script": tts_script,
                     "summary": summary
                 })
 
-                # Build minimal environment with only necessary variables
+                # Build environment with necessary variables
                 safe_env = {
                     'PATH': os.environ.get('PATH', ''),
                     'HOME': os.environ.get('HOME', ''),
+                    'USER': os.environ.get('USER', ''),
+                    'TMPDIR': os.environ.get('TMPDIR', '/tmp'),
                     'TTS_VOLUME': os.getenv('TTS_VOLUME', '0'),
-                    # Audio environment variables needed for PulseAudio/PipeWire
+                    # macOS audio session
+                    'TERM': os.environ.get('TERM', 'xterm-256color'),
+                    # Linux audio (PulseAudio/PipeWire)
                     'XDG_RUNTIME_DIR': os.environ.get('XDG_RUNTIME_DIR', ''),
                     'DBUS_SESSION_BUS_ADDRESS': os.environ.get('DBUS_SESSION_BUS_ADDRESS', ''),
                 }
@@ -280,39 +338,21 @@ def summarize_and_announce(transcript_path: str):
                     safe_env['OPENAI_API_KEY'] = os.getenv('OPENAI_API_KEY', '')
                     safe_env['OPENAI_TTS_DEBUG'] = os.getenv('OPENAI_TTS_DEBUG', 'false')
 
-                # Use Popen with process group to ensure child processes (mpg123) are killed on timeout
-                process = subprocess.Popen(
+                # Spawn TTS process and don't wait - let it run in background
+                subprocess.Popen(
                     [tts_script, sanitized_summary],
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
                     env=safe_env,
-                    start_new_session=True  # Create new process group
+                    start_new_session=True  # Detach from parent
                 )
+                metadata["tts_triggered"] = True
+                debug_log("TTS spawned successfully")
 
-                try:
-                    stdout, stderr = process.communicate(timeout=30)
-                    metadata["tts_triggered"] = True
-                    metadata["tts_returncode"] = process.returncode
-                    debug_log("TTS completed", {
-                        "returncode": process.returncode,
-                        "stdout": stdout.decode(errors='replace') if stdout else "",
-                        "stderr": stderr.decode(errors='replace') if stderr else ""
-                    })
-                except subprocess.TimeoutExpired:
-                    # Kill entire process group to ensure mpg123 is terminated
-                    try:
-                        os.killpg(os.getpgid(process.pid), signal.SIGTERM)
-                        debug_log("Killed TTS process group due to timeout")
-                    except:
-                        process.kill()
-                    process.wait()
-                    metadata["tts_triggered"] = False
-                    metadata["tts_error"] = "Timeout after 30s"
-                    debug_log("ERROR: TTS timeout")
             except Exception as e:
                 metadata["tts_triggered"] = False
                 metadata["tts_error"] = str(e)
-                debug_log("ERROR: TTS failed", {"error": str(e), "type": type(e).__name__})
+                debug_log("ERROR: TTS spawn failed", {"error": str(e), "type": type(e).__name__})
         else:
             debug_log("Skipping TTS", {
                 "tts_script": "missing" if not tts_script else "present",
@@ -360,6 +400,25 @@ def main():
             debug_log("No transcript path provided, exiting")
             sys.exit(0)  # No transcript path provided
 
+        # Quick disable: touch ~/.claude/no-summary to mute, rm to re-enable
+        kill_file = Path.home() / '.claude' / 'no-summary'
+        if kill_file.exists():
+            debug_log("Disabled via kill file (~/.claude/no-summary)")
+            sys.exit(0)
+
+        # Auto-mute when microphone is active (in a call)
+        import platform
+        if platform.system() == 'Darwin':
+            mic_check = Path(__file__).parent / 'utils' / 'mic_active'
+            if mic_check.exists():
+                try:
+                    result = subprocess.run([str(mic_check)], capture_output=True, timeout=1)
+                    if result.returncode == 0:  # mic is active
+                        debug_log("Auto-muted: microphone in use")
+                        sys.exit(0)
+                except Exception:
+                    pass
+
         # Check if response summary is enabled (opt-in via env var)
         enabled = os.getenv('CLAUDE_RESPONSE_SUMMARY_ENABLED', 'false').lower() in ('true', '1', 'yes')
         debug_log("Feature enabled check", {
@@ -383,8 +442,9 @@ def main():
 
         try:
             # Summarize and announce the response
-            debug_log("Calling summarize_and_announce")
-            metadata = summarize_and_announce(transcript_path)
+            session_cwd = input_data.get('cwd')
+            debug_log("Calling summarize_and_announce", {"session_cwd": session_cwd})
+            metadata = summarize_and_announce(transcript_path, cwd=session_cwd)
         finally:
             # Release lock
             try:
