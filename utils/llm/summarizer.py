@@ -21,16 +21,11 @@ except ImportError:
 
 # Shared summarization config
 SUMMARY_MAX_TOKENS = 40
-SUMMARY_PROMPT = """State what you did in under 12 words, first person, for TTS.
+SUMMARY_PROMPT = """Summarize the following text in under 12 words. Output ONLY the summary sentence and nothing else.
 
-Good: "I fixed the login bug and added tests."
-Good: "I updated the config file."
-Bad: "Done! - Claude Code"
-Bad: "The refactoring has been completed successfully."
-
+<text>
 {text}
-
-Summary:"""
+</text>"""
 
 
 def summarize_with_groq(text: str, timeout: int = 5) -> str:
@@ -136,7 +131,7 @@ def simple_summarize(text: str, max_words: int = 12) -> str:
     return summary
 
 
-def summarize_response(text: str, timeout: int = 8) -> str:
+def summarize_response(text: str, timeout: int = 8) -> tuple[str, str]:
     """
     Summarize Claude's response in one concise sentence, in Claude Code's voice.
 
@@ -147,36 +142,42 @@ def summarize_response(text: str, timeout: int = 8) -> str:
         timeout: Timeout in seconds for LLM calls
 
     Returns:
-        A concise summary sentence as if Claude Code is speaking
+        Tuple of (summary, provider) where provider is the name of the model used
     """
     if not text or not text.strip():
-        return "Task complete"
+        return "Task complete", "default"
+
+    # Short responses don't need summarization - use as-is
+    words = text.split()
+    if len(words) <= 12:
+        return text.strip(), "passthrough"
 
     # Try Anthropic first (good quality, ~0.8s warm)
     summary = summarize_with_anthropic(text, timeout)
     if summary:
-        return summary
+        return summary, "anthropic/claude-3-5-haiku"
 
     # Try OpenAI as fallback
     summary = summarize_with_openai(text, timeout)
     if summary:
-        return summary
+        return summary, "openai/gpt-4o-mini"
 
     # Try Groq last (fast but lower quality)
     summary = summarize_with_groq(text, timeout=5)
     if summary:
-        return summary
+        return summary, "groq/llama-3.1-8b"
 
     # Simple truncation fallback
-    return simple_summarize(text)
+    return simple_summarize(text), "truncation"
 
 
 def main():
     """Test the summarizer from command line."""
     if len(sys.argv) > 1:
         text = " ".join(sys.argv[1:])
-        summary = summarize_response(text)
+        summary, provider = summarize_response(text)
         print(summary)
+        print(provider)
     else:
         # Test with sample text
         sample = """I'll add the cached sound files to .gitignore and commit the changes.
@@ -191,7 +192,9 @@ The commit includes:
 - Enhanced logging in `stop.py` with metadata and error tracking"""
 
         print("Sample text:", sample[:100] + "...")
-        print("\nSummary:", summarize_response(sample))
+        summary, provider = summarize_response(sample)
+        print(f"\nSummary: {summary}")
+        print(f"Provider: {provider}")
 
 
 if __name__ == "__main__":
