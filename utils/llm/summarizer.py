@@ -28,6 +28,11 @@ except ImportError:
     get_completion_messages = None
 
 
+SUMMARY_PROMPT_TEMPLATE = """Very concisely summarize this Claude Code assistant response, as if Claude Code is speaking. Less than 20 words. Be natural-sounding for text-to-speech. Output only the summary text, no prefix or label.
+
+{text}"""
+
+
 def summarize_with_ollama(text: str, timeout: int = 3) -> str:
     """Summarize text using local Ollama model (fastest, runs locally)."""
     try:
@@ -47,16 +52,11 @@ def summarize_with_ollama(text: str, timeout: int = 3) -> str:
             f"{ollama_host}/api/generate",
             json={
                 "model": ollama_model,
-                "prompt": f"""Summarize this Claude Code assistant response in one concise sentence, as if Claude Code is speaking.
-Be natural-sounding for text-to-speech.
-
-{text}
-
-Summary (Claude Code speaking):""",
+                "prompt": SUMMARY_PROMPT_TEMPLATE.format(text=text),
                 "stream": False,
                 "options": {
-                    "temperature": 0.3,
-                    "num_predict": 100
+                    "temperature": 0.1,
+                    "num_predict": 40
                 }
             },
             timeout=timeout
@@ -65,8 +65,6 @@ Summary (Claude Code speaking):""",
         if response.status_code == 200:
             data = response.json()
             summary = data.get("response", "").strip()
-            # Remove quotes if present
-            summary = summary.strip('"').strip("'")
             return summary if summary else None
 
         return None
@@ -90,21 +88,13 @@ def summarize_with_openai(text: str, timeout: int = 8) -> str:
             model="gpt-4o-mini",
             messages=[{
                 "role": "user",
-                "content": f"""Summarize this Claude Code assistant response in one concise sentence, as if Claude Code is speaking.
-Be natural-sounding for text-to-speech.
-
-{text}
-
-Summary (Claude Code speaking):"""
+                "content": SUMMARY_PROMPT_TEMPLATE.format(text=text)
             }],
-            max_tokens=100,
-            temperature=0.3,
+            max_tokens=40,
+            temperature=0.1,
         )
 
-        summary = response.choices[0].message.content.strip()
-        # Remove quotes if present
-        summary = summary.strip('"').strip("'")
-        return summary
+        return response.choices[0].message.content.strip()
 
     except Exception:
         return None
@@ -123,24 +113,15 @@ def summarize_with_anthropic(text: str, timeout: int = 2) -> str:
 
         response = client.messages.create(
             model="claude-3-5-haiku-20241022",
-            max_tokens=100,
-            temperature=0.3,
+            max_tokens=40,
+            temperature=0.1,
             messages=[{
                 "role": "user",
-                "content": f"""Summarize this Claude Code assistant response in one concise sentence, as if Claude Code is speaking.
-Be natural-sounding for text-to-speech.
-
-Response to summarize:
-{text}
-
-Summary (Claude Code speaking):"""
+                "content": SUMMARY_PROMPT_TEMPLATE.format(text=text)
             }]
         )
 
-        summary = response.content[0].text.strip()
-        # Remove quotes if present
-        summary = summary.strip('"').strip("'")
-        return summary
+        return response.content[0].text.strip()
 
     except Exception:
         return None

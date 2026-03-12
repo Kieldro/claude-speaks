@@ -12,6 +12,7 @@ import sys
 import subprocess
 import signal
 import fcntl
+import time
 from pathlib import Path
 from datetime import datetime
 
@@ -121,18 +122,6 @@ def summarize_and_announce(transcript_path: str):
         "cwd": os.getcwd()
     })
 
-    # Play instant notification sound (non-blocking) to indicate hook started
-    try:
-        debug_log("Playing start notification")
-        subprocess.Popen(
-            ['paplay', '/usr/share/sounds/freedesktop/stereo/message-new-instant.oga'],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL
-        )
-        debug_log("Start notification spawned")
-    except Exception as e:
-        debug_log("Start notification failed", {"error": str(e)})
-
     metadata = {
         "tts_triggered": False,
         "summary": None,
@@ -142,11 +131,43 @@ def summarize_and_announce(transcript_path: str):
     }
 
     try:
-        # Extract Claude's latest response from transcript
+        # The Stop hook fires before the current response is written to the
+        # transcript. Wait for the file to grow, indicating new content.
+        transcript_file = Path(transcript_path)
+        initial_size = transcript_file.stat().st_size if transcript_file.exists() else 0
+        debug_log("Waiting for transcript update", {"initial_size": initial_size})
+
+        retry_delays = [0.1, 0.1, 0.2, 0.3, 0.3, 0.5, 0.5, 0.5, 0.5, 0.5]
+        for attempt, delay in enumerate(retry_delays):
+            time.sleep(delay)
+            current_size = transcript_file.stat().st_size if transcript_file.exists() else 0
+            debug_log(f"Poll {attempt + 1}/{len(retry_delays)}", {
+                "current_size": current_size,
+                "grew": current_size > initial_size,
+                "delay": delay
+            })
+            if current_size > initial_size:
+                debug_log("Transcript updated", {"grew_by": current_size - initial_size})
+                break
+        else:
+            debug_log("Transcript did not grow after retries, reading anyway")
+
+        # Play notification sound now that transcript is ready
+        try:
+            subprocess.Popen(
+                ['paplay', '/usr/share/sounds/freedesktop/stereo/message-new-instant.oga'],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+        except Exception:
+            pass
+
+        # Extract Claude's latest response
         debug_log("Extracting response from transcript")
-        response_text = get_combined_response(transcript_path)
+        response_text, response_id = get_combined_response(transcript_path)
         debug_log("Response extraction complete", {
             "response_length": len(response_text) if response_text else 0,
+            "response_id": response_id,
             "response_preview": response_text[:100] if response_text else "None"
         })
 
@@ -269,7 +290,7 @@ def summarize_and_announce(transcript_path: str):
                 )
 
                 try:
-                    stdout, stderr = process.communicate(timeout=15)
+                    stdout, stderr = process.communicate(timeout=30)
                     metadata["tts_triggered"] = True
                     metadata["tts_returncode"] = process.returncode
                     debug_log("TTS completed", {
@@ -286,7 +307,7 @@ def summarize_and_announce(transcript_path: str):
                         process.kill()
                     process.wait()
                     metadata["tts_triggered"] = False
-                    metadata["tts_error"] = "Timeout after 15s"
+                    metadata["tts_error"] = "Timeout after 30s"
                     debug_log("ERROR: TTS timeout")
             except Exception as e:
                 metadata["tts_triggered"] = False
