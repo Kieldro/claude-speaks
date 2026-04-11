@@ -20,6 +20,9 @@ try:
 except ImportError:
     pass  # dotenv is optional
 
+sys.path.insert(0, str(Path(__file__).parent / "utils"))
+from voice_selector import get_voice_id_for_transcript
+
 
 def get_tts_script_path():
     """
@@ -56,7 +59,7 @@ def get_tts_script_path():
     return None
 
 
-def announce_notification():
+def announce_notification(transcript_path=None):
     """Announce that the agent needs user input. Returns TTS metadata dict.
 
     Fire-and-forget: Spawns TTS process in background and returns immediately.
@@ -88,11 +91,18 @@ def announce_notification():
         tts_metadata["personalized"] = personalized
         tts_metadata["tts_triggered"] = True
 
+        # Per-model voice override (Opus → Max, Haiku → Jessica, Sonnet → env default)
+        tts_env = os.environ.copy()
+        voice_override = get_voice_id_for_transcript(transcript_path)
+        if voice_override:
+            tts_env['ELEVENLABS_VOICE_ID'] = voice_override
+
         # Fire-and-forget: spawn TTS in background, don't wait for completion
         subprocess.Popen(
             [sys.executable, tts_script, notification_message],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
+            env=tts_env,
             start_new_session=True  # Detach from parent process
         )
 
@@ -110,7 +120,7 @@ def main():
         # Announce notification via TTS
         # Skip TTS for the generic "Claude is waiting for your input" message
         if input_data.get('message') != 'Claude is waiting for your input':
-            announce_notification()
+            announce_notification(input_data.get('transcript_path'))
             # tts_metadata removed from input_data to avoid slowing down hook
 
         # Logging commented out for performance - file I/O blocks hook completion

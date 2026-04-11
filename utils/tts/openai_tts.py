@@ -33,7 +33,7 @@ def speak(text):
         # Generate audio using TTS-1-HD (higher quality)
         response = client.audio.speech.create(
             model="tts-1-hd",
-            voice="nova",
+            voice=os.getenv('OPENAI_TTS_VOICE', 'nova'),
             input=text
         )
 

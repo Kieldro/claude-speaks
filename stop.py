@@ -23,6 +23,7 @@ except ImportError:
 # Import shared message definitions
 sys.path.insert(0, str(Path(__file__).parent / "utils"))
 from messages import get_completion_messages
+from voice_selector import get_voice_id_for_transcript
 
 # LLM completion message generation timeout (seconds)
 LLM_TIMEOUT = 2
@@ -185,7 +186,7 @@ def select_completion_message_fast(session_id=None, include_session_id=False):
     return message, False, None
 
 
-def announce_completion(session_id=None, include_session_id=False):
+def announce_completion(session_id=None, include_session_id=False, transcript_path=None):
     """Announce completion using TTS with completion message.
 
     Fire-and-forget: Spawns TTS process in background and returns immediately.
@@ -193,6 +194,7 @@ def announce_completion(session_id=None, include_session_id=False):
     Args:
         session_id: Optional Claude Code session ID for identification
         include_session_id: If True, prepend session identifier to message
+        transcript_path: Optional transcript path for per-model voice selection
 
     Returns:
         dict: Metadata about the announcement (message, backend, errors, etc.)
@@ -219,11 +221,19 @@ def announce_completion(session_id=None, include_session_id=False):
         metadata["llm_backend"] = llm_backend
         metadata["tts_triggered"] = True
 
+        # Per-model voice override (Opus → Max, Haiku → Jessica, Sonnet → env default)
+        tts_env = os.environ.copy()
+        voice_override = get_voice_id_for_transcript(transcript_path)
+        if voice_override:
+            tts_env['ELEVENLABS_VOICE_ID'] = voice_override
+            metadata["voice_id"] = voice_override
+
         # Fire-and-forget: spawn TTS in background, don't wait for completion
         subprocess.Popen(
             [sys.executable, tts_script, message],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
+            env=tts_env,
             start_new_session=True  # Detach from parent process
         )
 
@@ -250,14 +260,15 @@ def main():
         # Read JSON input from stdin
         input_data = json.load(sys.stdin)
 
-        # Extract session_id if available
+        # Extract session_id and transcript_path if available
         session_id = input_data.get('session_id')
+        transcript_path = input_data.get('transcript_path')
 
         # Check environment variable to enable session identifiers
         include_session_id = os.getenv('CLAUDE_SESSION_ID_ENABLED', 'false').lower() in ('true', '1', 'yes')
 
         # Announce completion via TTS with optional session identifier
-        metadata = announce_completion(session_id, include_session_id)
+        metadata = announce_completion(session_id, include_session_id, transcript_path)
 
         # Debug logging
         script_dir = Path(__file__).parent
