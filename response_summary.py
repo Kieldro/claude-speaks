@@ -23,7 +23,34 @@ except ImportError:
 
 # Import utilities
 sys.path.insert(0, str(Path(__file__).parent / "utils"))
-from transcript import get_combined_response
+from transcript import get_combined_response, get_model
+
+# Map Claude model to TTS provider + voice
+# Format: (provider, voice_id)
+# ElevenLabs voice library: https://elevenlabs.io/app/voice-library
+# OpenAI voices: alloy, ash, coral, echo, fable, nova, onyx, sage, shimmer
+MODEL_VOICE_MAP = {
+    'opus': ('elevenlabs', 'qNkzaJoHLLdpvgh5tISm'),   # Carter the Mountain King
+    'sonnet': ('openai', 'nova'),                        # female, warm
+    'haiku': ('openai', 'sage'),                          # calm, measured
+}
+DEFAULT_VOICE = ('openai', 'nova')
+
+# Other auditioned ElevenLabs voices (for reference):
+# G3zrXA9moYrFCgwBAvxJ  - deep male (library)
+# qNkzaJoHLLdpvgh5tISm  - deep male (library)
+# IRHApOXLvnW57QJPQH2P  - Adam: Brooding, Dark, Tough American
+# goT3UYdM9bhm0n2lmKQx  - Edward: British, Dark, Sexy, Low
+# pNInz6obpgDQGcFmaJgB  - Adam: Dominant, Firm (default)
+
+
+def voice_for_model(model: str | None) -> tuple[str, str]:
+    """Return (provider, voice_id) based on Claude model."""
+    if model:
+        for key, voice in MODEL_VOICE_MAP.items():
+            if key in model:
+                return voice
+    return DEFAULT_VOICE
 
 
 def sanitize_text(text: str, max_length: int = 50000) -> str:
@@ -76,6 +103,7 @@ def debug_log(message: str, data: dict = None):
             f.write("\n")
     except Exception:
         pass  # Fail silently on logging errors
+
 
 
 def get_topic_identifier(cwd: str = None) -> str | None:
@@ -224,7 +252,14 @@ def summarize_and_announce(transcript_path: str, cwd: str = None):
             return metadata
 
         metadata["response_found"] = True
-        debug_log("Response found successfully")
+
+        # Detect model for voice selection
+        model = get_model(transcript_path)
+        tts_provider, voice_id = voice_for_model(model)
+        metadata["model"] = model
+        metadata["tts_provider"] = tts_provider
+        metadata["voice"] = voice_id
+        debug_log("Response found", {"model": model, "tts_provider": tts_provider, "voice": voice_id})
 
         # Summarize the response
         llm_dir = Path(__file__).parent / "utils" / "llm"
@@ -297,12 +332,20 @@ def summarize_and_announce(transcript_path: str, cwd: str = None):
         debug_log("Topic identifier", {"topic": topic})
 
         # Speak the summary via TTS (detached process survives hook exit)
-        tts_script = get_tts_script_path()
+        # Select TTS script based on model's provider
+        script_dir = Path(__file__).parent / "utils" / "tts"
+        if tts_provider == 'elevenlabs':
+            tts_script = str(script_dir / "elevenlabs_tts.py")
+        elif tts_provider == 'openai':
+            tts_script = str(script_dir / "openai_tts.py")
+        else:
+            tts_script = get_tts_script_path()
 
         debug_log("Getting TTS script", {
-            "tts_script": str(tts_script) if tts_script else "None",
+            "tts_script": tts_script,
+            "tts_provider": tts_provider,
+            "voice": voice_id,
             "summary": summary,
-            "TTS_VOLUME": os.getenv('TTS_VOLUME', 'not set')
         })
 
         if tts_script and summary:
@@ -312,6 +355,7 @@ def summarize_and_announce(transcript_path: str, cwd: str = None):
 
                 debug_log("Spawning TTS (fire-and-forget)", {
                     "script": tts_script,
+                    "voice": voice_id,
                     "summary": summary
                 })
 
@@ -329,18 +373,21 @@ def summarize_and_announce(transcript_path: str, cwd: str = None):
                     'DBUS_SESSION_BUS_ADDRESS': os.environ.get('DBUS_SESSION_BUS_ADDRESS', ''),
                 }
 
-                # Add API keys only if needed for specific TTS script
-                tts_script_str = str(tts_script)
-                if 'elevenlabs' in tts_script_str:
+                # Add API keys based on provider
+                if tts_provider == 'elevenlabs':
                     safe_env['ELEVENLABS_API_KEY'] = os.getenv('ELEVENLABS_API_KEY', '')
-                    safe_env['ELEVENLABS_VOICE_ID'] = os.getenv('ELEVENLABS_VOICE_ID', '')
-                elif 'openai' in tts_script_str:
+                    safe_env['ELEVENLABS_VOICE_ID'] = voice_id
+                elif tts_provider == 'openai':
                     safe_env['OPENAI_API_KEY'] = os.getenv('OPENAI_API_KEY', '')
                     safe_env['OPENAI_TTS_DEBUG'] = os.getenv('OPENAI_TTS_DEBUG', 'false')
 
-                # Spawn TTS process and don't wait - let it run in background
+                # Build command with voice arg
+                tts_cmd = [tts_script]
+                if tts_provider == 'openai':
+                    tts_cmd.append(f'--voice={voice_id}')
+                tts_cmd.append(sanitized_summary)
                 subprocess.Popen(
-                    [tts_script, sanitized_summary],
+                    tts_cmd,
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
                     env=safe_env,
@@ -405,19 +452,6 @@ def main():
         if kill_file.exists():
             debug_log("Disabled via kill file (~/.claude/no-summary)")
             sys.exit(0)
-
-        # Auto-mute when microphone is active (in a call)
-        import platform
-        if platform.system() == 'Darwin':
-            mic_check = Path(__file__).parent / 'utils' / 'mic_active'
-            if mic_check.exists():
-                try:
-                    result = subprocess.run([str(mic_check)], capture_output=True, timeout=1)
-                    if result.returncode == 0:  # mic is active
-                        debug_log("Auto-muted: microphone in use")
-                        sys.exit(0)
-                except Exception:
-                    pass
 
         # Check if response summary is enabled (opt-in via env var)
         enabled = os.getenv('CLAUDE_RESPONSE_SUMMARY_ENABLED', 'false').lower() in ('true', '1', 'yes')

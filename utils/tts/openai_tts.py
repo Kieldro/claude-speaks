@@ -19,11 +19,14 @@ try:
 except ImportError:
     pass
 
-def speak(text):
+def speak(text, voice=None):
     """Use OpenAI TTS to generate and play speech"""
     api_key = os.getenv('OPENAI_API_KEY')
     if not api_key:
         return False
+
+    if not voice:
+        voice = os.getenv('OPENAI_TTS_VOICE', 'nova')
 
     try:
         from openai import OpenAI
@@ -33,7 +36,7 @@ def speak(text):
         # Generate audio using TTS-1-HD (higher quality)
         response = client.audio.speech.create(
             model="tts-1-hd",
-            voice="nova",
+            voice=voice,
             input=text
         )
 
@@ -98,9 +101,13 @@ def speak(text):
         return False
 
 if __name__ == '__main__':
-    if len(sys.argv) > 1:
-        message = ' '.join(sys.argv[1:])
-        if speak(message):
+    args = sys.argv[1:]
+    voice = None
+    if args and args[0].startswith('--voice='):
+        voice = args.pop(0).split('=', 1)[1]
+    if args:
+        message = ' '.join(args)
+        if speak(message, voice=voice):
             sys.exit(0)
         else:
             sys.exit(1)
