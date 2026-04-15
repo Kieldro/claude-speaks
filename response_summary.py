@@ -1,10 +1,5 @@
-#!/usr/bin/env -S uv run --script
-# /// script
-# requires-python = ">=3.11"
-# dependencies = [
-#     "python-dotenv",
-# ]
-# ///
+#!/usr/bin/env python3
+"""Response summary hook. Uses system python3 with user-installed packages."""
 
 import json
 import os
@@ -25,7 +20,11 @@ except ImportError:
 # Import utilities
 sys.path.insert(0, str(Path(__file__).parent / "utils"))
 from transcript import get_combined_response
-from voice_selector import get_openai_voice_for_transcript, get_voice_id_for_transcript
+from voice_selector import (
+    get_edge_voice_for_transcript,
+    get_openai_voice_for_transcript,
+    get_voice_id_for_transcript,
+)
 
 
 def sanitize_text(text: str, max_length: int = 50000) -> str:
@@ -148,13 +147,25 @@ def get_topic_identifier(cwd: str = None) -> str:
     return "Claude"
 
 
-def get_tts_script_path():
+def get_tts_script_path(prefer: str = ""):
     """
     Get the TTS script path for summaries.
-    Priority: OpenAI > ElevenLabs > system voice
+
+    `prefer` can be 'edge', 'elevenlabs', or '' (default OpenAI > ElevenLabs > edge > system).
+    Defaults to 'edge' for credit conservation when an edge voice is mapped for the model.
     """
     script_dir = Path(__file__).parent
     tts_dir = script_dir / "utils" / "tts"
+
+    if prefer == 'edge':
+        edge_script = tts_dir / "edge_tts_speak.py"
+        if edge_script.exists():
+            return str(edge_script)
+
+    if prefer == 'elevenlabs' and os.getenv('ELEVENLABS_API_KEY'):
+        elevenlabs_script = tts_dir / "elevenlabs_tts.py"
+        if elevenlabs_script.exists():
+            return str(elevenlabs_script)
 
     # Check for OpenAI API key (fastest and cheapest)
     if os.getenv('OPENAI_API_KEY'):
@@ -338,8 +349,13 @@ def summarize_and_announce(transcript_path: str, cwd: str = None):
         metadata["topic"] = topic
         debug_log("Topic identifier", {"topic": topic})
 
-        # Speak the summary via TTS (detached process survives hook exit)
-        tts_script = get_tts_script_path()
+        # Speak the summary via TTS (detached process survives hook exit).
+        # If a model has a dedicated ElevenLabs voice (e.g. Opus → Max),
+        # force ElevenLabs so the voice actually takes effect.
+        # Prefer paid ElevenLabs when a per-model voice is mapped (Starter plan).
+        # Chain falls through to OpenAI → edge → system_voice on failure (e.g. quota exceeded).
+        elevenlabs_override = get_voice_id_for_transcript(transcript_path)
+        tts_script = get_tts_script_path(prefer='elevenlabs' if elevenlabs_override else '')
 
         debug_log("Getting TTS script", {
             "tts_script": str(tts_script) if tts_script else "None",
@@ -357,13 +373,21 @@ def summarize_and_announce(transcript_path: str, cwd: str = None):
                     "summary": summary
                 })
 
-                # Build environment with necessary variables
+                # Build environment with necessary variables.
+                # PYTHONPATH is passed explicitly so the spawned TTS subprocess
+                # can import user-installed packages (openai, edge_tts) even
+                # if HOME/site-packages discovery fails in the hook context.
+                # User site-packages first so newer user-installed deps
+                # (pydantic, typing_extensions) override older system versions.
+                import site
+                python_path = ':'.join([site.getusersitepackages()] + site.getsitepackages())
                 safe_env = {
                     'PATH': os.environ.get('PATH', ''),
                     'HOME': os.environ.get('HOME', ''),
                     'USER': os.environ.get('USER', ''),
                     'TMPDIR': os.environ.get('TMPDIR', '/tmp'),
                     'TTS_VOLUME': os.getenv('TTS_VOLUME', '0'),
+                    'PYTHONPATH': python_path,
                     # macOS audio session
                     'TERM': os.environ.get('TERM', 'xterm-256color'),
                     # Linux audio (PulseAudio/PipeWire)
@@ -371,19 +395,29 @@ def summarize_and_announce(transcript_path: str, cwd: str = None):
                     'DBUS_SESSION_BUS_ADDRESS': os.environ.get('DBUS_SESSION_BUS_ADDRESS', ''),
                 }
 
-                # Add API keys only if needed for specific TTS script
+                # Set API keys + per-model voice for EVERY backend so the fallback
+                # chain (eleven → openai → edge → system) keeps the right voice
+                # at whichever level actually plays the audio.
+                safe_env['ELEVENLABS_API_KEY'] = os.getenv('ELEVENLABS_API_KEY', '')
+                safe_env['OPENAI_API_KEY'] = os.getenv('OPENAI_API_KEY', '')
+                safe_env['OPENAI_TTS_DEBUG'] = os.getenv('OPENAI_TTS_DEBUG', 'false')
+
+                eleven_voice = get_voice_id_for_transcript(transcript_path) or os.getenv('ELEVENLABS_VOICE_ID', '')
+                openai_voice = get_openai_voice_for_transcript(transcript_path) or os.getenv('OPENAI_TTS_VOICE', 'nova')
+                edge_voice = get_edge_voice_for_transcript(transcript_path) or os.getenv('EDGE_TTS_VOICE', 'en-US-AriaNeural')
+
+                if eleven_voice:
+                    safe_env['ELEVENLABS_VOICE_ID'] = eleven_voice
+                safe_env['OPENAI_TTS_VOICE'] = openai_voice
+                safe_env['EDGE_TTS_VOICE'] = edge_voice
+
                 tts_script_str = str(tts_script)
                 if 'elevenlabs' in tts_script_str:
-                    safe_env['ELEVENLABS_API_KEY'] = os.getenv('ELEVENLABS_API_KEY', '')
-                    elevenlabs_voice = get_voice_id_for_transcript(transcript_path) or os.getenv('ELEVENLABS_VOICE_ID', '')
-                    safe_env['ELEVENLABS_VOICE_ID'] = elevenlabs_voice
-                    metadata["voice_id"] = elevenlabs_voice
+                    metadata["voice_id"] = eleven_voice
                 elif 'openai' in tts_script_str:
-                    safe_env['OPENAI_API_KEY'] = os.getenv('OPENAI_API_KEY', '')
-                    safe_env['OPENAI_TTS_DEBUG'] = os.getenv('OPENAI_TTS_DEBUG', 'false')
-                    openai_voice = get_openai_voice_for_transcript(transcript_path) or os.getenv('OPENAI_TTS_VOICE', 'nova')
-                    safe_env['OPENAI_TTS_VOICE'] = openai_voice
                     metadata["voice_id"] = openai_voice
+                elif 'edge' in tts_script_str:
+                    metadata["voice_id"] = edge_voice
 
                 # Spawn TTS process and don't wait - let it run in background
                 subprocess.Popen(

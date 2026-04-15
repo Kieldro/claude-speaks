@@ -1,0 +1,2 @@
+{"type": "user", "message": {"role": "user", "content": "Summarize the previous work."}}
+{"type": "assistant", "message": {"role": "assistant", "model": "claude-haiku-4-5-20251001", "content": [{"type": "text", "text": "I added a regression test suite covering the TTS fallback chain, the voice selector, and hook environment propagation. All tests pass."}]}}

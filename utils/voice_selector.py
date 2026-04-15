@@ -6,14 +6,22 @@ from pathlib import Path
 from typing import Optional
 
 MODEL_VOICE_MAP = {
-    "opus": "Gfpl8Yo74Is0W6cPUWWT",   # Max
-    "haiku": "cgSgspJ2msm6clMCkdW9",  # Jessica
+    "opus": "Gfpl8Yo74Is0W6cPUWWT",    # Max
+    "sonnet": "EXAVITQu4vr4xnSDxMaL",  # Sarah — mature, reassuring, confident
+    # haiku intentionally omitted — routes through OpenAI with sage voice below
 }
 
-# OpenAI TTS voices — onyx is deep/commanding, shimmer is bright/high
+# OpenAI TTS voices — used when no ElevenLabs override exists for the model
 MODEL_OPENAI_VOICE_MAP = {
     "opus": "onyx",
-    "haiku": "shimmer",
+    "haiku": "sage",
+}
+
+# Edge TTS voices — free Microsoft neural voices, no quota
+MODEL_EDGE_VOICE_MAP = {
+    "opus": "en-US-AndrewNeural",   # warm, confident, authoritative
+    "sonnet": "en-US-AvaNeural",    # expressive, caring, pleasant
+    "haiku": "en-US-EmmaNeural",    # cheerful, clear, bright
 }
 
 
@@ -57,6 +65,10 @@ def get_openai_voice_for_model(model: Optional[str]) -> Optional[str]:
     return _lookup(model, MODEL_OPENAI_VOICE_MAP)
 
 
+def get_edge_voice_for_model(model: Optional[str]) -> Optional[str]:
+    return _lookup(model, MODEL_EDGE_VOICE_MAP)
+
+
 def get_voice_id_for_transcript(transcript_path: Optional[str]) -> Optional[str]:
     if not transcript_path:
         return None
@@ -69,8 +81,14 @@ def get_openai_voice_for_transcript(transcript_path: Optional[str]) -> Optional[
     return get_openai_voice_for_model(get_model_from_transcript(transcript_path))
 
 
+def get_edge_voice_for_transcript(transcript_path: Optional[str]) -> Optional[str]:
+    if not transcript_path:
+        return None
+    return get_edge_voice_for_model(get_model_from_transcript(transcript_path))
+
+
 if __name__ == '__main__':
     import sys
     if len(sys.argv) > 1:
         model = get_model_from_transcript(sys.argv[1])
-        print(f"model={model} elevenlabs={get_voice_id_for_model(model)} openai={get_openai_voice_for_model(model)}")
+        print(f"model={model} elevenlabs={get_voice_id_for_model(model)} openai={get_openai_voice_for_model(model)} edge={get_edge_voice_for_model(model)}")
