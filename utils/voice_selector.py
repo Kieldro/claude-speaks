@@ -13,8 +13,9 @@ MODEL_VOICE_MAP = {
 
 # OpenAI TTS voices — used when no ElevenLabs override exists for the model
 MODEL_OPENAI_VOICE_MAP = {
-    "opus": "onyx",
-    "haiku": "sage",
+    "opus": "onyx",       # deep male
+    "sonnet": "alloy",    # neutral
+    "haiku": "nova",      # high-pitched female
 }
 
 # Edge TTS voices — free Microsoft neural voices, no quota

@@ -221,12 +221,19 @@ def announce_completion(session_id=None, include_session_id=False, transcript_pa
         metadata["llm_backend"] = llm_backend
         metadata["tts_triggered"] = True
 
-        # Per-model voice override (Opus → Max, Haiku → Jessica, Sonnet → env default)
+        # Per-model voice overrides: ElevenLabs + OpenAI
+        # (cached_tts falls back to OpenAI when ElevenLabs quota exceeded)
         tts_env = os.environ.copy()
-        voice_override = get_voice_id_for_transcript(transcript_path)
-        if voice_override:
-            tts_env['ELEVENLABS_VOICE_ID'] = voice_override
-            metadata["voice_id"] = voice_override
+        eleven_voice = get_voice_id_for_transcript(transcript_path)
+        if eleven_voice:
+            tts_env['ELEVENLABS_VOICE_ID'] = eleven_voice
+            metadata["voice_id"] = eleven_voice
+
+        from voice_selector import get_openai_voice_for_transcript
+        openai_voice = get_openai_voice_for_transcript(transcript_path)
+        if openai_voice:
+            tts_env['OPENAI_TTS_VOICE'] = openai_voice
+            metadata["openai_voice"] = openai_voice
 
         # Fire-and-forget: spawn TTS in background, don't wait for completion
         subprocess.Popen(
@@ -259,6 +266,10 @@ def main():
     try:
         # Read JSON input from stdin
         input_data = json.load(sys.stdin)
+
+        # Global TTS kill switch
+        if os.getenv('CLAUDE_TTS_ENABLED', 'true').lower() not in ('true', '1', 'yes'):
+            sys.exit(0)
 
         # Extract session_id and transcript_path if available
         session_id = input_data.get('session_id')

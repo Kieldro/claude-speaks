@@ -357,21 +357,19 @@ def summarize_and_announce(transcript_path: str, cwd: str = None):
         elevenlabs_override = get_voice_id_for_transcript(transcript_path)
         tts_script = get_tts_script_path(prefer='elevenlabs' if elevenlabs_override else '')
 
-        debug_log("Getting TTS script", {
+        from voice_selector import get_model_from_transcript
+        detected_model = get_model_from_transcript(transcript_path) if transcript_path else None
+        debug_log("Voice selection", {
+            "detected_model": detected_model or "unknown",
+            "elevenlabs_voice": elevenlabs_override or "none",
+            "prefer": 'elevenlabs' if elevenlabs_override else 'default',
             "tts_script": str(tts_script) if tts_script else "None",
-            "summary": summary,
-            "TTS_VOLUME": os.getenv('TTS_VOLUME', 'not set')
         })
 
         if tts_script and summary:
             # Fire-and-forget TTS - don't block the hook
             try:
                 sanitized_summary = sanitize_text(summary, max_length=500)
-
-                debug_log("Spawning TTS (fire-and-forget)", {
-                    "script": tts_script,
-                    "summary": summary
-                })
 
                 # Build environment with necessary variables.
                 # PYTHONPATH is passed explicitly so the spawned TTS subprocess
@@ -405,6 +403,14 @@ def summarize_and_announce(transcript_path: str, cwd: str = None):
                 eleven_voice = get_voice_id_for_transcript(transcript_path) or os.getenv('ELEVENLABS_VOICE_ID', '')
                 openai_voice = get_openai_voice_for_transcript(transcript_path) or os.getenv('OPENAI_TTS_VOICE', 'nova')
                 edge_voice = get_edge_voice_for_transcript(transcript_path) or os.getenv('EDGE_TTS_VOICE', 'en-US-AriaNeural')
+
+                debug_log("Spawning TTS (fire-and-forget)", {
+                    "script": tts_script,
+                    "elevenlabs_voice": eleven_voice or "none",
+                    "openai_voice": openai_voice,
+                    "edge_voice": edge_voice,
+                    "summary": summary,
+                })
 
                 if eleven_voice:
                     safe_env['ELEVENLABS_VOICE_ID'] = eleven_voice
@@ -481,6 +487,11 @@ def main():
             debug_log("No transcript path provided, exiting")
             sys.exit(0)  # No transcript path provided
 
+        # Global TTS kill switch
+        if os.getenv('CLAUDE_TTS_ENABLED', 'true').lower() not in ('true', '1', 'yes'):
+            debug_log("All TTS disabled via CLAUDE_TTS_ENABLED")
+            sys.exit(0)
+
         # Quick disable: touch ~/.claude/no-summary to mute, rm to re-enable
         kill_file = Path.home() / '.claude' / 'no-summary'
         if kill_file.exists():
@@ -510,6 +521,45 @@ def main():
         if not enabled:
             debug_log("Feature disabled, exiting")
             sys.exit(0)  # Feature disabled
+
+        # Skip summary if user is actively watching this terminal pane.
+        # Canned completion message from stop.py is enough when watching.
+        import platform
+        if platform.system() == 'Darwin':
+            try:
+                # Check if terminal app is frontmost
+                frontmost = subprocess.run(
+                    ['osascript', '-e',
+                     'tell application "System Events" to get name of first application process whose frontmost is true'],
+                    capture_output=True, text=True, timeout=1
+                ).stdout.strip()
+                terminal_focused = frontmost in ('iTerm2', 'Terminal')
+
+                # Check if this tmux pane is the active one
+                tmux_pane = os.environ.get('TMUX_PANE', '')
+                pane_active = False
+                if tmux_pane:
+                    pane_check = subprocess.run(
+                        ['tmux', 'display', '-p', '-t', tmux_pane,
+                         '#{window_active}#{pane_active}'],
+                        capture_output=True, text=True, timeout=1
+                    )
+                    pane_active = pane_check.stdout.strip() == '11'
+
+                user_watching = terminal_focused and pane_active
+                debug_log("User attention check", {
+                    "frontmost_app": frontmost,
+                    "terminal_focused": terminal_focused,
+                    "tmux_pane": tmux_pane or "not in tmux",
+                    "pane_active": pane_active,
+                    "user_watching": user_watching,
+                })
+
+                if user_watching:
+                    debug_log("User is watching this pane, skipping summary")
+                    sys.exit(0)
+            except Exception as e:
+                debug_log("Attention check failed, proceeding with summary", {"error": str(e)})
 
         # Acquire exclusive lock to prevent concurrent executions across multiple Claude Code sessions
         lock_file = Path("/tmp/claude_response_summary.lock")

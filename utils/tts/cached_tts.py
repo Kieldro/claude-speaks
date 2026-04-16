@@ -190,40 +190,42 @@ def speak_with_cache(text, verbose=False):
         result["cache_hit"] = True
         result["tts_backend"] = "cache"
         if play_audio(cached_audio):
+            _log_tts_call(text, result)
             return result
         # If playback failed, continue to regenerate
 
-    # Check if we can cache (ElevenLabs only)
-    elevenlabs_success = False
-    if os.getenv('ELEVENLABS_API_KEY'):
-        voice_id = os.getenv('ELEVENLABS_VOICE_ID', DEFAULT_VOICE_ID)
-        result["tts_backend"] = "elevenlabs"
-        result["voice_id"] = voice_id
-        # Generate and cache audio
-        if generate_and_cache_audio(text, cached_audio):
-            if play_audio(cached_audio):
-                elevenlabs_success = True
-                return result
-
-    # Fall back to regular TTS if ElevenLabs failed or unavailable
-    if not elevenlabs_success:
-        result["fallback_used"] = True
-        tts_script = get_tts_script_path()
-        if tts_script:
-            result["tts_backend"] = Path(tts_script).stem
-            try:
-                # Run TTS script synchronously to ensure completion
-                subprocess.run(
-                    [sys.executable, tts_script, text],
-                    capture_output=True,
-                    timeout=5,
-                    check=False
-                )
-                return result
-            except (subprocess.TimeoutExpired, subprocess.SubprocessError):
-                pass
+    # Cache miss — skip ElevenLabs (quota-expensive) and go straight to fallback.
+    # ElevenLabs is only used when cache hits (pre-generated via generate_cache.py).
+    result["fallback_used"] = True
+    tts_script = get_tts_script_path()
+    if tts_script:
+        result["tts_backend"] = Path(tts_script).stem
+        try:
+            subprocess.Popen(
+                [sys.executable, tts_script, text],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+            _log_tts_call(text, result)
+        except (subprocess.SubprocessError, FileNotFoundError):
+            pass
 
     return result
+
+
+def _log_tts_call(text: str, result: dict):
+    """Append one line per TTS call to /tmp/cached_tts.log for debugging."""
+    try:
+        from datetime import datetime
+        with open('/tmp/cached_tts.log', 'a') as f:
+            ts = datetime.now().isoformat(timespec='seconds')
+            f.write(f"{ts}  backend={result.get('tts_backend')}  "
+                    f"cache_hit={result.get('cache_hit')}  "
+                    f"fallback={result.get('fallback_used')}  "
+                    f"text={text[:60]!r}\n")
+    except Exception:
+        pass
 
 
 if __name__ == '__main__':

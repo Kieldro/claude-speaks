@@ -117,6 +117,10 @@ def main():
         # Read JSON input from stdin
         input_data = json.loads(sys.stdin.read())
 
+        # Global TTS kill switch
+        if os.getenv('CLAUDE_TTS_ENABLED', 'true').lower() not in ('true', '1', 'yes'):
+            sys.exit(0)
+
         # Announce notification via TTS
         # Skip TTS for the generic "Claude is waiting for your input" message
         if input_data.get('message') != 'Claude is waiting for your input':
