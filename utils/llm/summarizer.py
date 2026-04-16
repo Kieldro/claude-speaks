@@ -10,6 +10,7 @@
 # ///
 
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -20,12 +21,214 @@ except ImportError:
     pass
 
 # Shared summarization config
-SUMMARY_MAX_TOKENS = 40
-SUMMARY_PROMPT = """Summarize the following text in under 12 words. Output ONLY the summary sentence and nothing else.
+SUMMARY_MAX_TOKENS = 25
+SUMMARY_PROMPT = """Condense this AI assistant response into ONE sentence under 8 words. State the key fact or action — not "I did X", just "X". Speak as the assistant. Examples: "Ultrawide 12MP, main 200MP." or "Fixed auth bug via token refresh." Output ONLY the sentence.
 
 <text>
 {text}
 </text>"""
+
+
+# Abbreviations to expand for spoken TTS output.
+# Keys are matched as whole words (case-insensitive). If a key ends with
+# a digit pattern like "(\d+)", it captures trailing numbers so that e.g.
+# "5mg" becomes "5 milligrams".
+ABBREVIATIONS = {
+    # Units of weight / mass
+    "oz": "ounces",
+    "lbs": "pounds",
+    "lb": "pounds",
+    "kg": "kilograms",
+    "mg": "milligrams",
+    "mcg": "micrograms",
+    # Units of volume
+    "ml": "milliliters",
+    "fl": "fluid",
+    "tsp": "teaspoon",
+    "tbsp": "tablespoon",
+    "gal": "gallons",
+    # Units of length / distance
+    "ft": "feet",
+    "cm": "centimeters",
+    "mm": "millimeters",
+    "km": "kilometers",
+    "mi": "miles",
+    # Units of time
+    "ms": "milliseconds",
+    "mins": "minutes",
+    "hrs": "hours",
+    "hr": "hour",
+    "sec": "seconds",
+    # Health / fitness
+    "bpm": "beats per minute",
+    "BF": "body fat",
+    "BMI": "body mass index",
+    "BMR": "basal metabolic rate",
+    "HR": "heart rate",
+    "BP": "blood pressure",
+    "cal": "calories",
+    "kcal": "kilocalories",
+    # Tech
+    "API": "A P I",
+    "APIs": "A P I s",
+    "URL": "U R L",
+    "URLs": "U R L s",
+    "DB": "database",
+    "CPU": "C P U",
+    "GPU": "G P U",
+    "RAM": "ram",
+    "PR": "pull request",
+    "PRs": "pull requests",
+    "CI": "C I",
+    "CD": "C D",
+    "CLI": "C L I",
+    "SDK": "S D K",
+    "UI": "U I",
+    "UX": "U X",
+    "OS": "O S",
+    "env": "environment",
+    "config": "configuration",
+    "configs": "configurations",
+    "repo": "repository",
+    "repos": "repositories",
+    "deps": "dependencies",
+    "dep": "dependency",
+    "auth": "authentication",
+    "impl": "implementation",
+    "perf": "performance",
+    "mem": "memory",
+    "avg": "average",
+    "approx": "approximately",
+    "info": "information",
+    "temp": "temperature",
+    "max": "maximum",
+    "min": "minimum",
+    "num": "number",
+    "pct": "percent",
+    "vs": "versus",
+    "w/": "with",
+    "w/o": "without",
+    "govt": "government",
+    "amt": "amount",
+    "qty": "quantity",
+    "freq": "frequency",
+    "est": "estimated",
+    "std": "standard",
+    "dev": "deviation",
+    "diff": "difference",
+    "src": "source",
+    "dst": "destination",
+    "req": "request",
+    "res": "response",
+    "err": "error",
+    "msg": "message",
+    "msgs": "messages",
+    "addr": "address",
+    "desc": "description",
+    "prev": "previous",
+    "curr": "current",
+    "orig": "original",
+    "ver": "version",
+    "pkg": "package",
+    "pkgs": "packages",
+    "dir": "directory",
+    "dirs": "directories",
+    "ref": "reference",
+    "refs": "references",
+    "func": "function",
+    "funcs": "functions",
+    "param": "parameter",
+    "params": "parameters",
+    "arg": "argument",
+    "args": "arguments",
+    "var": "variable",
+    "vars": "variables",
+    "attr": "attribute",
+    "attrs": "attributes",
+    "prop": "property",
+    "props": "properties",
+    "elem": "element",
+    "elems": "elements",
+    "idx": "index",
+    "len": "length",
+    "val": "value",
+    "vals": "values",
+    "char": "character",
+    "chars": "characters",
+    "str": "string",
+    "int": "integer",
+    "bool": "boolean",
+    "obj": "object",
+    "objs": "objects",
+    "exec": "execution",
+    "alloc": "allocation",
+    "dealloc": "deallocation",
+    "init": "initialization",
+    "deinit": "deinitialization",
+    "iter": "iteration",
+    "async": "asynchronous",
+    "sync": "synchronous",
+}
+
+# Build a single compiled regex: match abbreviations as whole words.
+# Sort by length descending so longer matches win (e.g. "w/o" before "w/").
+_ABBREV_PATTERN = re.compile(
+    r'\b(' + '|'.join(
+        re.escape(k) for k in sorted(ABBREVIATIONS, key=len, reverse=True)
+    ) + r')(?=\s|[.,;:!?\'\"/\-]|$)',
+    re.IGNORECASE
+)
+
+# Separate pattern for number+unit combinations like "5oz", "10kg", "3lbs"
+# Includes units too ambiguous as standalone words (e.g. "g") that are
+# unambiguous when preceded by a number ("200g" → "200 grams").
+_UNIT_ABBREVS = {k: v for k, v in ABBREVIATIONS.items()
+                 if v in (
+                     "ounces", "pounds", "kilograms", "milligrams", "micrograms",
+                     "milliliters", "gallons", "feet", "centimeters",
+                     "millimeters", "kilometers", "miles", "milliseconds",
+                     "minutes", "hours", "hour", "seconds", "calories",
+                     "kilocalories", "beats per minute", "percent",
+                 )}
+_UNIT_ABBREVS["g"] = "grams"
+
+_NUM_UNIT_PATTERN = re.compile(
+    r'(\d+)\s*(' + '|'.join(
+        re.escape(k) for k in sorted(_UNIT_ABBREVS, key=len, reverse=True)
+    ) + r')(?=\s|[.,;:!?\'\"/\-]|$)',
+    re.IGNORECASE
+)
+
+
+def expand_abbreviations(text: str) -> str:
+    """Expand abbreviations to full words for natural-sounding TTS."""
+    if not text:
+        return text
+
+    def _num_unit_repl(m):
+        number = m.group(1)
+        unit = m.group(2)
+        expanded = (_UNIT_ABBREVS.get(unit) or _UNIT_ABBREVS.get(unit.lower())
+                    or ABBREVIATIONS.get(unit) or ABBREVIATIONS.get(unit.lower(), unit))
+        return f"{number} {expanded}"
+
+    # First expand number+unit combos (e.g. "5oz" → "5 ounces")
+    text = _NUM_UNIT_PATTERN.sub(_num_unit_repl, text)
+
+    def _word_repl(m):
+        word = m.group(1)
+        # Look up case-insensitive
+        expanded = ABBREVIATIONS.get(word) or ABBREVIATIONS.get(word.lower())
+        if not expanded:
+            return word
+        # Preserve capitalization of first letter
+        if word[0].isupper() and not expanded[0].isupper():
+            return expanded[0].upper() + expanded[1:]
+        return expanded
+
+    text = _ABBREV_PATTERN.sub(_word_repl, text)
+
+    return text
 
 
 def summarize_with_groq(text: str, timeout: int = 5) -> str:
@@ -150,25 +353,25 @@ def summarize_response(text: str, timeout: int = 8) -> tuple[str, str]:
     # Short responses don't need summarization - use as-is
     words = text.split()
     if len(words) <= 12:
-        return text.strip(), "passthrough"
+        return expand_abbreviations(text.strip()), "passthrough"
 
     # Try Anthropic first (good quality, ~0.8s warm)
     summary = summarize_with_anthropic(text, timeout)
     if summary:
-        return summary, "anthropic/claude-3-5-haiku"
+        return expand_abbreviations(summary), "anthropic/claude-3-5-haiku"
 
     # Try OpenAI as fallback
     summary = summarize_with_openai(text, timeout)
     if summary:
-        return summary, "openai/gpt-4o-mini"
+        return expand_abbreviations(summary), "openai/gpt-4o-mini"
 
     # Try Groq last (fast but lower quality)
     summary = summarize_with_groq(text, timeout=5)
     if summary:
-        return summary, "groq/llama-3.1-8b"
+        return expand_abbreviations(summary), "groq/llama-3.1-8b"
 
     # Simple truncation fallback
-    return simple_summarize(text), "truncation"
+    return expand_abbreviations(simple_summarize(text)), "truncation"
 
 
 def main():

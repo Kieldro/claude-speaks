@@ -109,32 +109,6 @@ def get_combined_response(transcript_path: str, max_chars: Optional[int] = None,
     return None
 
 
-def get_model(transcript_path: str) -> Optional[str]:
-    """Extract the model name from the latest assistant message in the transcript.
-
-    Returns:
-        Model string (e.g., "claude-opus-4-6", "claude-sonnet-4-6") or None.
-    """
-    transcript_file = Path(transcript_path)
-    if not transcript_file.exists():
-        return None
-
-    try:
-        with open(transcript_file, 'r') as f:
-            lines = f.readlines()
-    except Exception:
-        return None
-
-    for i in range(len(lines) - 1, -1, -1):
-        try:
-            entry = json.loads(lines[i].strip())
-            if entry.get('type') == 'assistant':
-                return entry.get('message', {}).get('model')
-        except (json.JSONDecodeError, KeyError):
-            continue
-    return None
-
-
 if __name__ == '__main__':
     import sys
     if len(sys.argv) > 1:

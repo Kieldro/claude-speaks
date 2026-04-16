@@ -1,10 +1,5 @@
-#!/usr/bin/env -S uv run --script
-# /// script
-# requires-python = ">=3.11"
-# dependencies = [
-#     "python-dotenv",
-# ]
-# ///
+#!/usr/bin/env python3
+"""Response summary hook. Uses system python3 with user-installed packages."""
 
 import json
 import os
@@ -12,6 +7,7 @@ import sys
 import subprocess
 import signal
 import fcntl
+import time
 from pathlib import Path
 from datetime import datetime
 
@@ -23,34 +19,12 @@ except ImportError:
 
 # Import utilities
 sys.path.insert(0, str(Path(__file__).parent / "utils"))
-from transcript import get_combined_response, get_model
-
-# Map Claude model to TTS provider + voice
-# Format: (provider, voice_id)
-# ElevenLabs voice library: https://elevenlabs.io/app/voice-library
-# OpenAI voices: alloy, ash, coral, echo, fable, nova, onyx, sage, shimmer
-MODEL_VOICE_MAP = {
-    'opus': ('elevenlabs', 'qNkzaJoHLLdpvgh5tISm'),   # Carter the Mountain King
-    'sonnet': ('openai', 'nova'),                        # female, warm
-    'haiku': ('openai', 'sage'),                          # calm, measured
-}
-DEFAULT_VOICE = ('openai', 'nova')
-
-# Other auditioned ElevenLabs voices (for reference):
-# G3zrXA9moYrFCgwBAvxJ  - deep male (library)
-# qNkzaJoHLLdpvgh5tISm  - deep male (library)
-# IRHApOXLvnW57QJPQH2P  - Adam: Brooding, Dark, Tough American
-# goT3UYdM9bhm0n2lmKQx  - Edward: British, Dark, Sexy, Low
-# pNInz6obpgDQGcFmaJgB  - Adam: Dominant, Firm (default)
-
-
-def voice_for_model(model: str | None) -> tuple[str, str]:
-    """Return (provider, voice_id) based on Claude model."""
-    if model:
-        for key, voice in MODEL_VOICE_MAP.items():
-            if key in model:
-                return voice
-    return DEFAULT_VOICE
+from transcript import get_combined_response
+from voice_selector import (
+    get_edge_voice_for_transcript,
+    get_openai_voice_for_transcript,
+    get_voice_id_for_transcript,
+)
 
 
 def sanitize_text(text: str, max_length: int = 50000) -> str:
@@ -105,23 +79,33 @@ def debug_log(message: str, data: dict = None):
         pass  # Fail silently on logging errors
 
 
+def _best_word(name: str) -> str | None:
+    """Extract the single most descriptive word from a name (longest, 3+ chars)."""
+    for prefix in ('fix-', 'feat-', 'add-', 'update-', 'refactor-', 'chore-', 'bug-', 'hotfix-'):
+        if name.lower().startswith(prefix):
+            name = name[len(prefix):]
+            break
+    words = [w for w in name.replace('_', '-').split('-') if len(w) >= 3]
+    if not words:
+        return None
+    return max(words, key=len).capitalize()
 
-def get_topic_identifier(cwd: str = None) -> str | None:
-    """Derive a short topic identifier from the current git branch name.
 
-    Uses up to 2 descriptive words from the branch to differentiate sessions
-    working on similar domains (e.g., multiple invoice-related stories).
+def get_topic_identifier(cwd: str = None) -> str:
+    """Derive a unique one-word identifier for a Claude session.
+
+    Uses the most descriptive word from the branch name (non-default)
+    or repo name, so the identifier is relevant to the work. Falls back
+    to folder name, then "Claude".
 
     Args:
-        cwd: Working directory of the Claude session (to find the right git repo)
+        cwd: Working directory of the Claude session
 
     Examples:
-        star-1234/fix-invoice-search     → "Invoice Search"
-        star-5678/add-invoice-validation → "Invoice Validation"
-        star-9999/update-payment-terms   → "Payment Terms"
-        feat/improve-payments            → "Payments"
-        mac                              → "Mac"
-        master / main                    → None
+        claude-speaks on fix-auth  → "Auth"
+        claude-speaks on master    → "Speaks"
+        whisper-hotkey on master   → "Whisper"
+        cwd: /home/user/my-project → "Project"
     """
     try:
         result = subprocess.run(
@@ -129,47 +113,59 @@ def get_topic_identifier(cwd: str = None) -> str | None:
             capture_output=True, text=True, timeout=2,
             cwd=cwd
         )
-        if result.returncode != 0:
-            return None
+        if result.returncode == 0:
+            branch = result.stdout.strip()
 
-        branch = result.stdout.strip()
+            # Non-default branch — use branch name
+            if branch not in ('master', 'main', 'HEAD', 'develop'):
+                if '/' in branch:
+                    branch = branch.rsplit('/', 1)[-1]
+                word = _best_word(branch)
+                if word:
+                    return word
 
-        # Skip default branches
-        if branch in ('master', 'main', 'HEAD', 'develop'):
-            return None
-
-        # Take part after last '/' (e.g., "star-1234/fix-invoice-search" → "fix-invoice-search")
-        if '/' in branch:
-            branch = branch.rsplit('/', 1)[-1]
-
-        # Strip common verb prefixes
-        for prefix in ('fix-', 'feat-', 'add-', 'update-', 'refactor-', 'chore-', 'bug-', 'hotfix-'):
-            if branch.lower().startswith(prefix):
-                branch = branch[len(prefix):]
-                break
-
-        # Split on hyphens/underscores, take up to 2 most descriptive words
-        words = [w for w in branch.replace('_', '-').split('-') if w and len(w) > 1]
-        if not words:
-            return None
-
-        # Sort by length descending, take top 2, then restore original order
-        ranked = sorted(enumerate(words), key=lambda x: len(x[1]), reverse=True)[:2]
-        picked = sorted(ranked, key=lambda x: x[0])  # restore order
-
-        return ' '.join(w.capitalize() for _, w in picked)
-
+            # Default branch or branch name not descriptive — use repo name
+            repo_result = subprocess.run(
+                ['git', 'rev-parse', '--show-toplevel'],
+                capture_output=True, text=True, timeout=2,
+                cwd=cwd
+            )
+            if repo_result.returncode == 0:
+                repo_name = Path(repo_result.stdout.strip()).name
+                word = _best_word(repo_name)
+                if word:
+                    return word
     except Exception:
-        return None
+        pass
+
+    # Not in a repo — use folder name
+    if cwd:
+        word = _best_word(Path(cwd).name)
+        if word:
+            return word
+
+    return "Claude"
 
 
-def get_tts_script_path():
+def get_tts_script_path(prefer: str = ""):
     """
     Get the TTS script path for summaries.
-    Priority: OpenAI > ElevenLabs > system voice
+
+    `prefer` can be 'edge', 'elevenlabs', or '' (default OpenAI > ElevenLabs > edge > system).
+    Defaults to 'edge' for credit conservation when an edge voice is mapped for the model.
     """
     script_dir = Path(__file__).parent
     tts_dir = script_dir / "utils" / "tts"
+
+    if prefer == 'edge':
+        edge_script = tts_dir / "edge_tts_speak.py"
+        if edge_script.exists():
+            return str(edge_script)
+
+    if prefer == 'elevenlabs' and os.getenv('ELEVENLABS_API_KEY'):
+        elevenlabs_script = tts_dir / "elevenlabs_tts.py"
+        if elevenlabs_script.exists():
+            return str(elevenlabs_script)
 
     # Check for OpenAI API key (fastest and cheapest)
     if os.getenv('OPENAI_API_KEY'):
@@ -238,6 +234,36 @@ def summarize_and_announce(transcript_path: str, cwd: str = None):
     }
 
     try:
+        # The Stop hook fires before the transcript is fully written.
+        # Phase 1: wait for new data (file grows from initial size).
+        # Phase 2: wait for writes to finish (file size stabilizes).
+        transcript_file = Path(transcript_path)
+        initial_size = transcript_file.stat().st_size if transcript_file.exists() else 0
+        debug_log("Waiting for transcript to be written", {"initial_size": initial_size})
+
+        # Phase 1: wait for file to grow
+        grow_delays = [0.1, 0.1, 0.2, 0.3, 0.5, 0.5, 0.5, 0.5]
+        for attempt, delay in enumerate(grow_delays):
+            time.sleep(delay)
+            current_size = transcript_file.stat().st_size if transcript_file.exists() else 0
+            if current_size > initial_size:
+                debug_log(f"Transcript grew after {attempt + 1} polls", {
+                    "grew_by": current_size - initial_size
+                })
+                break
+        else:
+            debug_log("Transcript did not grow, reading anyway")
+
+        # Phase 2: wait for file to stabilize (writes complete)
+        last_size = transcript_file.stat().st_size if transcript_file.exists() else 0
+        for _ in range(10):
+            time.sleep(0.1)
+            current_size = transcript_file.stat().st_size if transcript_file.exists() else 0
+            if current_size == last_size:
+                break
+            last_size = current_size
+        debug_log("Transcript stabilized", {"final_size": last_size})
+
         # Extract Claude's latest response from transcript
         debug_log("Extracting response from transcript")
         response_text = get_combined_response(transcript_path)
@@ -252,14 +278,7 @@ def summarize_and_announce(transcript_path: str, cwd: str = None):
             return metadata
 
         metadata["response_found"] = True
-
-        # Detect model for voice selection
-        model = get_model(transcript_path)
-        tts_provider, voice_id = voice_for_model(model)
-        metadata["model"] = model
-        metadata["tts_provider"] = tts_provider
-        metadata["voice"] = voice_id
-        debug_log("Response found", {"model": model, "tts_provider": tts_provider, "voice": voice_id})
+        debug_log("Response found successfully")
 
         # Summarize the response
         llm_dir = Path(__file__).parent / "utils" / "llm"
@@ -324,28 +343,24 @@ def summarize_and_announce(transcript_path: str, cwd: str = None):
             metadata["summary_method"] = "no_summarizer"
             debug_log("No summarizer script found, using fallback", {"summary": summary})
 
-        # Prepend topic identifier from git branch
+        # Prepend topic identifier to distinguish sessions
         topic = get_topic_identifier(cwd)
-        if topic:
-            summary = f"{topic}: {summary}"
-            metadata["topic"] = topic
+        summary = f"{topic}: {summary}"
+        metadata["topic"] = topic
         debug_log("Topic identifier", {"topic": topic})
 
-        # Speak the summary via TTS (detached process survives hook exit)
-        # Select TTS script based on model's provider
-        script_dir = Path(__file__).parent / "utils" / "tts"
-        if tts_provider == 'elevenlabs':
-            tts_script = str(script_dir / "elevenlabs_tts.py")
-        elif tts_provider == 'openai':
-            tts_script = str(script_dir / "openai_tts.py")
-        else:
-            tts_script = get_tts_script_path()
+        # Speak the summary via TTS (detached process survives hook exit).
+        # If a model has a dedicated ElevenLabs voice (e.g. Opus → Max),
+        # force ElevenLabs so the voice actually takes effect.
+        # Prefer paid ElevenLabs when a per-model voice is mapped (Starter plan).
+        # Chain falls through to OpenAI → edge → system_voice on failure (e.g. quota exceeded).
+        elevenlabs_override = get_voice_id_for_transcript(transcript_path)
+        tts_script = get_tts_script_path(prefer='elevenlabs' if elevenlabs_override else '')
 
         debug_log("Getting TTS script", {
-            "tts_script": tts_script,
-            "tts_provider": tts_provider,
-            "voice": voice_id,
+            "tts_script": str(tts_script) if tts_script else "None",
             "summary": summary,
+            "TTS_VOLUME": os.getenv('TTS_VOLUME', 'not set')
         })
 
         if tts_script and summary:
@@ -355,17 +370,24 @@ def summarize_and_announce(transcript_path: str, cwd: str = None):
 
                 debug_log("Spawning TTS (fire-and-forget)", {
                     "script": tts_script,
-                    "voice": voice_id,
                     "summary": summary
                 })
 
-                # Build environment with necessary variables
+                # Build environment with necessary variables.
+                # PYTHONPATH is passed explicitly so the spawned TTS subprocess
+                # can import user-installed packages (openai, edge_tts) even
+                # if HOME/site-packages discovery fails in the hook context.
+                # User site-packages first so newer user-installed deps
+                # (pydantic, typing_extensions) override older system versions.
+                import site
+                python_path = ':'.join([site.getusersitepackages()] + site.getsitepackages())
                 safe_env = {
                     'PATH': os.environ.get('PATH', ''),
                     'HOME': os.environ.get('HOME', ''),
                     'USER': os.environ.get('USER', ''),
                     'TMPDIR': os.environ.get('TMPDIR', '/tmp'),
                     'TTS_VOLUME': os.getenv('TTS_VOLUME', '0'),
+                    'PYTHONPATH': python_path,
                     # macOS audio session
                     'TERM': os.environ.get('TERM', 'xterm-256color'),
                     # Linux audio (PulseAudio/PipeWire)
@@ -373,21 +395,33 @@ def summarize_and_announce(transcript_path: str, cwd: str = None):
                     'DBUS_SESSION_BUS_ADDRESS': os.environ.get('DBUS_SESSION_BUS_ADDRESS', ''),
                 }
 
-                # Add API keys based on provider
-                if tts_provider == 'elevenlabs':
-                    safe_env['ELEVENLABS_API_KEY'] = os.getenv('ELEVENLABS_API_KEY', '')
-                    safe_env['ELEVENLABS_VOICE_ID'] = voice_id
-                elif tts_provider == 'openai':
-                    safe_env['OPENAI_API_KEY'] = os.getenv('OPENAI_API_KEY', '')
-                    safe_env['OPENAI_TTS_DEBUG'] = os.getenv('OPENAI_TTS_DEBUG', 'false')
+                # Set API keys + per-model voice for EVERY backend so the fallback
+                # chain (eleven → openai → edge → system) keeps the right voice
+                # at whichever level actually plays the audio.
+                safe_env['ELEVENLABS_API_KEY'] = os.getenv('ELEVENLABS_API_KEY', '')
+                safe_env['OPENAI_API_KEY'] = os.getenv('OPENAI_API_KEY', '')
+                safe_env['OPENAI_TTS_DEBUG'] = os.getenv('OPENAI_TTS_DEBUG', 'false')
 
-                # Build command with voice arg
-                tts_cmd = [tts_script]
-                if tts_provider == 'openai':
-                    tts_cmd.append(f'--voice={voice_id}')
-                tts_cmd.append(sanitized_summary)
+                eleven_voice = get_voice_id_for_transcript(transcript_path) or os.getenv('ELEVENLABS_VOICE_ID', '')
+                openai_voice = get_openai_voice_for_transcript(transcript_path) or os.getenv('OPENAI_TTS_VOICE', 'nova')
+                edge_voice = get_edge_voice_for_transcript(transcript_path) or os.getenv('EDGE_TTS_VOICE', 'en-US-AriaNeural')
+
+                if eleven_voice:
+                    safe_env['ELEVENLABS_VOICE_ID'] = eleven_voice
+                safe_env['OPENAI_TTS_VOICE'] = openai_voice
+                safe_env['EDGE_TTS_VOICE'] = edge_voice
+
+                tts_script_str = str(tts_script)
+                if 'elevenlabs' in tts_script_str:
+                    metadata["voice_id"] = eleven_voice
+                elif 'openai' in tts_script_str:
+                    metadata["voice_id"] = openai_voice
+                elif 'edge' in tts_script_str:
+                    metadata["voice_id"] = edge_voice
+
+                # Spawn TTS process and don't wait - let it run in background
                 subprocess.Popen(
-                    tts_cmd,
+                    [tts_script, sanitized_summary],
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
                     env=safe_env,
@@ -452,6 +486,19 @@ def main():
         if kill_file.exists():
             debug_log("Disabled via kill file (~/.claude/no-summary)")
             sys.exit(0)
+
+        # Auto-mute when microphone is active (in a call)
+        import platform
+        if platform.system() == 'Darwin':
+            mic_check = Path(__file__).parent / 'utils' / 'mic_active'
+            if mic_check.exists():
+                try:
+                    result = subprocess.run([str(mic_check)], capture_output=True, timeout=1)
+                    if result.returncode == 0:  # mic is active
+                        debug_log("Auto-muted: microphone in use")
+                        sys.exit(0)
+                except Exception:
+                    pass
 
         # Check if response summary is enabled (opt-in via env var)
         enabled = os.getenv('CLAUDE_RESPONSE_SUMMARY_ENABLED', 'false').lower() in ('true', '1', 'yes')

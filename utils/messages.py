@@ -89,7 +89,7 @@ def get_completion_messages():
         # Movie Classics
         "Groovy, baby!",
         "As you wish.",
-        "Hello. My name is Inigo Montoya. You killed my father. Prepare to die.",
+        "Hello. My name is Claude Code. You killed my father. Prepare to die.",
         "What is this? A task for ants?",
         "I'm kind of a big deal.",
         "Hasta la vista, baby!",
