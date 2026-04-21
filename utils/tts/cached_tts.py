@@ -27,18 +27,21 @@ except ImportError:
 DEFAULT_VOICE_ID = 'goT3UYdM9bhm0n2lmKQx'
 
 
-def get_cache_dir():
-    """Get the cache directory path for the current voice."""
+def get_cache_dir(backend: str = None, voice: str = None):
+    """Get cache dir for a specific backend+voice (or current env defaults)."""
     script_dir = Path(__file__).parent
-    base_cache_dir = script_dir / "cache"
+    base = script_dir / "cache"
 
-    # Get voice ID from environment or use default
-    voice_id = os.getenv('ELEVENLABS_VOICE_ID', DEFAULT_VOICE_ID)
+    if backend == 'openai':
+        voice = voice or os.getenv('OPENAI_TTS_VOICE', 'nova')
+        sub = f'openai-{voice}'
+    else:
+        voice = voice or os.getenv('ELEVENLABS_VOICE_ID', DEFAULT_VOICE_ID)
+        sub = voice
 
-    # Create voice-specific subdirectory
-    voice_cache_dir = base_cache_dir / voice_id
-    voice_cache_dir.mkdir(parents=True, exist_ok=True)
-    return voice_cache_dir
+    d = base / sub
+    d.mkdir(parents=True, exist_ok=True)
+    return d
 
 
 def get_cache_key(text):
@@ -46,11 +49,26 @@ def get_cache_key(text):
     return hashlib.md5(text.encode('utf-8')).hexdigest()
 
 
-def get_cached_audio_path(text):
-    """Get path to cached audio file for given text and current voice."""
-    cache_dir = get_cache_dir()
-    cache_key = get_cache_key(text)
-    return cache_dir / f"{cache_key}.mp3"
+def get_cached_audio_path(text, backend: str = None, voice: str = None):
+    """Get path to cached audio for given text+backend+voice."""
+    cache_dir = get_cache_dir(backend, voice)
+    return cache_dir / f"{get_cache_key(text)}.mp3"
+
+
+def generate_openai_audio(text, audio_path, voice):
+    """Generate audio via OpenAI TTS and save to cache. Returns True on success."""
+    api_key = os.getenv('OPENAI_API_KEY')
+    if not api_key:
+        return False
+    try:
+        from openai import OpenAI
+        client = OpenAI(api_key=api_key)
+        response = client.audio.speech.create(model='tts-1-hd', voice=voice, input=text)
+        with open(audio_path, 'wb') as f:
+            f.write(response.content)
+        return True
+    except Exception:
+        return False
 
 
 def play_audio(audio_file):
@@ -165,37 +183,44 @@ def generate_and_cache_audio(text, audio_path):
 
 
 def speak_with_cache(text, verbose=False):
-    """
-    Speak text using cached audio if available, otherwise generate and cache.
-    Falls back to non-cached TTS if caching is not supported.
-    Returns dict with metadata for logging.
-    """
+    """Speak text via cache → OpenAI (generating + caching on miss) → ElevenLabs fallback."""
     result = {
         "cache_hit": False,
         "cache_file": None,
         "tts_backend": None,
         "voice_id": None,
-        "fallback_used": False
+        "fallback_used": False,
     }
 
-    # Get cached audio path
-    cached_audio = get_cached_audio_path(text)
-    result["cache_file"] = str(cached_audio)
-
-    # Check if cached audio exists
-    if cached_audio.exists():
-        # Extract voice ID from cache path (cache/{voice_id}/hash.mp3)
-        # This reflects the actual voice used, not the current env var
-        result["voice_id"] = cached_audio.parent.name
-        result["cache_hit"] = True
-        result["tts_backend"] = "cache"
-        if play_audio(cached_audio):
+    # Check ElevenLabs voice cache first (legacy pre-generated content)
+    eleven_cached = get_cached_audio_path(text, backend='elevenlabs')
+    if eleven_cached.exists():
+        result.update(cache_file=str(eleven_cached), cache_hit=True,
+                      tts_backend='cache', voice_id=eleven_cached.parent.name)
+        if play_audio(eleven_cached):
             _log_tts_call(text, result)
             return result
-        # If playback failed, continue to regenerate
 
-    # Cache miss — skip ElevenLabs (quota-expensive) and go straight to fallback.
-    # ElevenLabs is only used when cache hits (pre-generated via generate_cache.py).
+    # Check OpenAI voice cache
+    openai_voice = os.getenv('OPENAI_TTS_VOICE', 'nova')
+    openai_cached = get_cached_audio_path(text, backend='openai', voice=openai_voice)
+    if openai_cached.exists():
+        result.update(cache_file=str(openai_cached), cache_hit=True,
+                      tts_backend='cache', voice_id=f'openai-{openai_voice}')
+        if play_audio(openai_cached):
+            _log_tts_call(text, result)
+            return result
+
+    # Generate via OpenAI and cache (fast + cheap)
+    if os.getenv('OPENAI_API_KEY'):
+        result.update(tts_backend='openai', voice_id=f'openai-{openai_voice}',
+                      cache_file=str(openai_cached), fallback_used=True)
+        if generate_openai_audio(text, openai_cached, openai_voice):
+            play_audio(openai_cached)
+            _log_tts_call(text, result)
+            return result
+
+    # Fall through to whatever TTS script is available
     result["fallback_used"] = True
     tts_script = get_tts_script_path()
     if tts_script:

@@ -79,72 +79,7 @@ def debug_log(message: str, data: dict = None):
         pass  # Fail silently on logging errors
 
 
-def _best_word(name: str) -> str | None:
-    """Extract the single most descriptive word from a name (longest, 3+ chars)."""
-    for prefix in ('fix-', 'feat-', 'add-', 'update-', 'refactor-', 'chore-', 'bug-', 'hotfix-'):
-        if name.lower().startswith(prefix):
-            name = name[len(prefix):]
-            break
-    words = [w for w in name.replace('_', '-').split('-') if len(w) >= 3]
-    if not words:
-        return None
-    return max(words, key=len).capitalize()
-
-
-def get_topic_identifier(cwd: str = None) -> str:
-    """Derive a unique one-word identifier for a Claude session.
-
-    Uses the most descriptive word from the branch name (non-default)
-    or repo name, so the identifier is relevant to the work. Falls back
-    to folder name, then "Claude".
-
-    Args:
-        cwd: Working directory of the Claude session
-
-    Examples:
-        claude-speaks on fix-auth  → "Auth"
-        claude-speaks on master    → "Speaks"
-        whisper-hotkey on master   → "Whisper"
-        cwd: /home/user/my-project → "Project"
-    """
-    try:
-        result = subprocess.run(
-            ['git', 'rev-parse', '--abbrev-ref', 'HEAD'],
-            capture_output=True, text=True, timeout=2,
-            cwd=cwd
-        )
-        if result.returncode == 0:
-            branch = result.stdout.strip()
-
-            # Non-default branch — use branch name
-            if branch not in ('master', 'main', 'HEAD', 'develop'):
-                if '/' in branch:
-                    branch = branch.rsplit('/', 1)[-1]
-                word = _best_word(branch)
-                if word:
-                    return word
-
-            # Default branch or branch name not descriptive — use repo name
-            repo_result = subprocess.run(
-                ['git', 'rev-parse', '--show-toplevel'],
-                capture_output=True, text=True, timeout=2,
-                cwd=cwd
-            )
-            if repo_result.returncode == 0:
-                repo_name = Path(repo_result.stdout.strip()).name
-                word = _best_word(repo_name)
-                if word:
-                    return word
-    except Exception:
-        pass
-
-    # Not in a repo — use folder name
-    if cwd:
-        word = _best_word(Path(cwd).name)
-        if word:
-            return word
-
-    return "Claude"
+from topic import get_topic_identifier
 
 
 def get_tts_script_path(prefer: str = ""):
@@ -345,9 +280,33 @@ def summarize_and_announce(transcript_path: str, cwd: str = None):
 
         # Prepend topic identifier to distinguish sessions
         topic = get_topic_identifier(cwd)
-        summary = f"{topic}: {summary}"
         metadata["topic"] = topic
         debug_log("Topic identifier", {"topic": topic})
+
+        # Show macOS banner notification (title = tmux session, body = summary)
+        if sys.platform == 'Darwin':
+            try:
+                tmux_pane = os.environ.get('TMUX_PANE', '')
+                session_name = topic
+                if tmux_pane:
+                    r = subprocess.run(
+                        ['tmux', 'display', '-p', '-t', tmux_pane, '#{session_name}'],
+                        capture_output=True, text=True, timeout=1,
+                    )
+                    if r.returncode == 0 and r.stdout.strip():
+                        session_name = r.stdout.strip()
+
+                safe_title = session_name.replace('"', '')
+                safe_body = summary.replace('"', '').replace('\\', '')
+                subprocess.Popen(
+                    ['osascript', '-e',
+                     f'display notification "{safe_body}" with title "{safe_title}"'],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                )
+            except Exception as e:
+                debug_log("Banner notification failed", {"error": str(e)})
+
+        summary = f"{topic}: {summary}"
 
         # Speak the summary via TTS (detached process survives hook exit).
         # If a model has a dedicated ElevenLabs voice (e.g. Opus → Max),
@@ -524,42 +483,12 @@ def main():
 
         # Skip summary if user is actively watching this terminal pane.
         # Canned completion message from stop.py is enough when watching.
-        import platform
-        if platform.system() == 'Darwin':
-            try:
-                # Check if terminal app is frontmost
-                frontmost = subprocess.run(
-                    ['osascript', '-e',
-                     'tell application "System Events" to get name of first application process whose frontmost is true'],
-                    capture_output=True, text=True, timeout=1
-                ).stdout.strip()
-                terminal_focused = frontmost in ('iTerm2', 'Terminal')
-
-                # Check if this tmux pane is the active one
-                tmux_pane = os.environ.get('TMUX_PANE', '')
-                pane_active = False
-                if tmux_pane:
-                    pane_check = subprocess.run(
-                        ['tmux', 'display', '-p', '-t', tmux_pane,
-                         '#{window_active}#{pane_active}'],
-                        capture_output=True, text=True, timeout=1
-                    )
-                    pane_active = pane_check.stdout.strip() == '11'
-
-                user_watching = terminal_focused and pane_active
-                debug_log("User attention check", {
-                    "frontmost_app": frontmost,
-                    "terminal_focused": terminal_focused,
-                    "tmux_pane": tmux_pane or "not in tmux",
-                    "pane_active": pane_active,
-                    "user_watching": user_watching,
-                })
-
-                if user_watching:
-                    debug_log("User is watching this pane, skipping summary")
-                    sys.exit(0)
-            except Exception as e:
-                debug_log("Attention check failed, proceeding with summary", {"error": str(e)})
+        from attention import user_is_watching
+        watching = user_is_watching()
+        debug_log("User attention check", {"user_watching": watching})
+        if watching:
+            debug_log("User is watching this pane, skipping summary")
+            sys.exit(0)
 
         # Acquire exclusive lock to prevent concurrent executions across multiple Claude Code sessions
         lock_file = Path("/tmp/claude_response_summary.lock")

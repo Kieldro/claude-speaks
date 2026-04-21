@@ -55,10 +55,16 @@ def main():
 
         message = random.choice(get_completion_messages())
 
-        # Prepend agent name if available
+        # Prepend agent name if available, else topic identifier
         agent_name = input_data.get('agent_name') or input_data.get('name', '')
         if agent_name:
             message = f"{agent_name}: {message}"
+        else:
+            sys.path.insert(0, str(Path(__file__).parent / "utils"))
+            from topic import get_topic_identifier
+            topic = get_topic_identifier(input_data.get('cwd'))
+            if topic:
+                message = f"{topic}: {message}"
 
         subprocess.Popen(
             [sys.executable, tts_script, message],

@@ -162,7 +162,7 @@ def get_session_identifier(session_id):
     return f"{phonetic} {number}"
 
 
-def select_completion_message_fast(session_id=None, include_session_id=False):
+def select_completion_message_fast(session_id=None, include_session_id=False, cwd=None):
     """Select a completion message instantly (always uses cached messages).
 
     For performance, always uses cached messages. LLM generation would block the hook.
@@ -176,17 +176,10 @@ def select_completion_message_fast(session_id=None, include_session_id=False):
     """
     messages = get_completion_messages()
     message = random.choice(messages)
-
-    # Add session identifier if enabled and available
-    if include_session_id and session_id:
-        identifier = get_session_identifier(session_id)
-        if identifier:
-            message = f"{identifier}: {message}"
-
     return message, False, None
 
 
-def announce_completion(session_id=None, include_session_id=False, transcript_path=None):
+def announce_completion(session_id=None, include_session_id=False, transcript_path=None, cwd=None):
     """Announce completion using TTS with completion message.
 
     Fire-and-forget: Spawns TTS process in background and returns immediately.
@@ -214,7 +207,7 @@ def announce_completion(session_id=None, include_session_id=False, transcript_pa
             return metadata
 
         # Select message (always cached for speed)
-        message, llm_generated, llm_backend = select_completion_message_fast(session_id, include_session_id)
+        message, llm_generated, llm_backend = select_completion_message_fast(session_id, include_session_id, cwd)
 
         metadata["message"] = message
         metadata["llm_generated"] = llm_generated
@@ -271,6 +264,12 @@ def main():
         if os.getenv('CLAUDE_TTS_ENABLED', 'true').lower() not in ('true', '1', 'yes'):
             sys.exit(0)
 
+        # When user is away, response_summary plays instead — skip canned.
+        sys.path.insert(0, str(Path(__file__).parent / "utils"))
+        from attention import user_is_watching
+        if not user_is_watching():
+            sys.exit(0)
+
         # Extract session_id and transcript_path if available
         session_id = input_data.get('session_id')
         transcript_path = input_data.get('transcript_path')
@@ -279,7 +278,7 @@ def main():
         include_session_id = os.getenv('CLAUDE_SESSION_ID_ENABLED', 'false').lower() in ('true', '1', 'yes')
 
         # Announce completion via TTS with optional session identifier
-        metadata = announce_completion(session_id, include_session_id, transcript_path)
+        metadata = announce_completion(session_id, include_session_id, transcript_path, input_data.get('cwd'))
 
         # Debug logging
         script_dir = Path(__file__).parent
