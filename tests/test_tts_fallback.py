@@ -39,7 +39,7 @@ def test_elevenlabs_speak_http_error_returns_false(monkeypatch, clean_debug_logs
 
     monkeypatch.setattr(elevenlabs_tts.urllib.request, "urlopen", fake_urlopen)
     assert elevenlabs_tts.speak("hi") is False
-    log = Path("/tmp/elevenlabs_tts_debug.log").read_text()
+    log = Path("/tmp/tts_chain.log").read_text()
     assert "HTTPError" in log
     assert "401" in log
 
@@ -49,7 +49,7 @@ def test_elevenlabs_speak_http_error_returns_false(monkeypatch, clean_debug_logs
 def test_openai_speak_no_api_key(monkeypatch, clean_debug_logs):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     assert openai_tts.speak("hi") is False
-    log = Path("/tmp/openai_tts_debug.log").read_text()
+    log = Path("/tmp/tts_chain.log").read_text()
     assert "no OPENAI_API_KEY" in log
 
 
@@ -63,7 +63,7 @@ def test_openai_speak_api_failure(monkeypatch, clean_debug_logs):
 
     with patch("openai.OpenAI", fake_client):
         assert openai_tts.speak("hi") is False
-    log = Path("/tmp/openai_tts_debug.log").read_text()
+    log = Path("/tmp/tts_chain.log").read_text()
     assert "FAIL" in log
 
 
@@ -75,7 +75,7 @@ def test_edge_speak_synthesis_failure(monkeypatch, clean_debug_logs):
 
     monkeypatch.setattr(edge_tts_speak, "_synthesize", boom)
     assert edge_tts_speak.speak("hi") is False
-    log = Path("/tmp/edge_tts_debug.log").read_text()
+    log = Path("/tmp/tts_chain.log").read_text()
     assert "synthesis exception" in log
 
 

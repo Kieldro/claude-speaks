@@ -14,10 +14,9 @@ sys.path.insert(0, str(REPO_ROOT))
 sys.path.insert(0, str(UTILS_DIR))
 sys.path.insert(0, str(TTS_DIR))
 
+TTS_CHAIN_LOG = Path("/tmp/tts_chain.log")
 DEBUG_LOGS = [
-    Path("/tmp/elevenlabs_tts_debug.log"),
-    Path("/tmp/openai_tts_debug.log"),
-    Path("/tmp/edge_tts_debug.log"),
+    TTS_CHAIN_LOG,
     Path("/tmp/response_summary_debug.log"),
 ]
 

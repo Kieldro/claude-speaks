@@ -18,13 +18,13 @@ try:
 except ImportError:
     pass  # dotenv is optional
 
-DEBUG_LOG = Path('/tmp/elevenlabs_tts_debug.log')
+DEBUG_LOG = Path('/tmp/tts_chain.log')
 
 
 def _log(msg: str):
     try:
         with open(DEBUG_LOG, 'a') as f:
-            f.write(f"[{datetime.now().isoformat()}] {msg}\n")
+            f.write(f"[{datetime.now().isoformat()}] [elevenlabs] {msg}\n")
     except OSError:
         pass
 

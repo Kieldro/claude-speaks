@@ -9,7 +9,7 @@ import tempfile
 from datetime import datetime
 from pathlib import Path
 
-DEBUG_LOG = Path('/tmp/edge_tts_debug.log')
+DEBUG_LOG = Path('/tmp/tts_chain.log')
 
 DEFAULT_VOICE = 'en-US-AriaNeural'
 
@@ -17,7 +17,7 @@ DEFAULT_VOICE = 'en-US-AriaNeural'
 def _log(msg: str):
     try:
         with open(DEBUG_LOG, 'a') as f:
-            f.write(f"[{datetime.now().isoformat()}] {msg}\n")
+            f.write(f"[{datetime.now().isoformat()}] [edge] {msg}\n")
     except OSError:
         pass
 

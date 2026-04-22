@@ -23,11 +23,11 @@ FIXTURES = Path(__file__).resolve().parent / "fixtures"
 OPUS_ID = "Gfpl8Yo74Is0W6cPUWWT"
 SONNET_ID = "EXAVITQu4vr4xnSDxMaL"
 
-# (model_id, expected_tts_log, expected_voice_marker_in_log)
+# (model_id, expected_primary_script, expected_voice_marker_in_log)
 CASES = [
-    ("claude-opus-4-6", "/tmp/elevenlabs_tts_debug.log", f"voice_id={OPUS_ID}"),
-    ("claude-sonnet-4-6", "/tmp/elevenlabs_tts_debug.log", f"voice_id={SONNET_ID}"),
-    ("claude-haiku-4-5-20251001", "/tmp/openai_tts_debug.log", "voice=sage"),
+    ("claude-opus-4-6", "elevenlabs_tts.py", f"voice_id={OPUS_ID}"),
+    ("claude-sonnet-4-6", "elevenlabs_tts.py", f"voice_id={SONNET_ID}"),
+    ("claude-haiku-4-5-20251001", "openai_tts.py", "voice=sage"),
 ]
 
 
@@ -83,9 +83,9 @@ def _build_fixture(model: str) -> Path:
 
 def _clear_logs():
     for log in (
-        "/tmp/elevenlabs_tts_debug.log",
-        "/tmp/openai_tts_debug.log",
-        "/tmp/edge_tts_debug.log",
+        "/tmp/tts_chain.log",
+        "/tmp/tts_chain.log",
+        "/tmp/tts_chain.log",
         "/tmp/response_summary_debug.log",
     ):
         try:
@@ -107,8 +107,8 @@ def _wait_for_log(log_path: str, marker: str, timeout: float = 30.0) -> str:
     return log.read_text() if log.exists() else ""
 
 
-@pytest.mark.parametrize("model,expected_log,voice_marker", CASES)
-def test_e2e_hook_runs_correct_tts_with_correct_voice(model, expected_log, voice_marker, tmp_path):
+@pytest.mark.parametrize("model,expected_primary_script,voice_marker", CASES)
+def test_e2e_hook_runs_correct_tts_with_correct_voice(model, expected_primary_script, voice_marker, tmp_path):
     import subprocess as sp
 
     transcript = _build_fixture(model)
@@ -137,18 +137,18 @@ def test_e2e_hook_runs_correct_tts_with_correct_voice(model, expected_log, voice
         f"Hook itself exited non-zero. stdout={result.stdout!r} stderr={result.stderr!r}"
     )
 
-    # The TTS subprocess is detached, so wait for its debug log.
-    log_text = _wait_for_log(expected_log, voice_marker, timeout=30.0)
+    # The TTS subprocess is detached, so wait for its consolidated debug log
+    # to show the per-model voice was *attempted* (success or fall-through both fine).
+    chain_log = "/tmp/tts_chain.log"
+    log_text = _wait_for_log(chain_log, voice_marker, timeout=30.0)
     assert voice_marker in log_text, (
-        f"Expected {voice_marker!r} in {expected_log}, got:\n{log_text[-2000:]}"
+        f"Expected {voice_marker!r} in {chain_log}, got:\n{log_text[-2000:]}"
     )
 
-    # The hook spawned the TTS in a new session — it might still be running.
-    # Tail the response_summary debug log to confirm the right script was picked.
+    # The hook should have selected the correct primary script for the model.
     rs_log = Path("/tmp/response_summary_debug.log")
     if rs_log.exists():
         rs_text = rs_log.read_text()
-        expected_script = "elevenlabs_tts.py" if "elevenlabs" in expected_log else "openai_tts.py"
-        assert expected_script in rs_text, (
-            f"Expected {expected_script} mention in response_summary debug log:\n{rs_text[-1000:]}"
+        assert expected_primary_script in rs_text, (
+            f"Expected {expected_primary_script} mention in response_summary debug log:\n{rs_text[-1000:]}"
         )
