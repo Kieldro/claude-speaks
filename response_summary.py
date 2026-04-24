@@ -21,6 +21,7 @@ except ImportError:
 sys.path.insert(0, str(Path(__file__).parent / "utils"))
 from transcript import get_combined_response
 from voice_selector import (
+    get_cartesia_voice_for_transcript,
     get_edge_voice_for_transcript,
     get_openai_voice_for_transcript,
     get_voice_id_for_transcript,
@@ -91,6 +92,11 @@ def get_tts_script_path(prefer: str = ""):
     """
     script_dir = Path(__file__).parent
     tts_dir = script_dir / "utils" / "tts"
+
+    if prefer == 'cartesia' and os.getenv('CARTESIA_API_KEY'):
+        cartesia_script = tts_dir / "cartesia_tts.py"
+        if cartesia_script.exists():
+            return str(cartesia_script)
 
     if prefer == 'edge':
         edge_script = tts_dir / "edge_tts_speak.py"
@@ -313,8 +319,16 @@ def summarize_and_announce(transcript_path: str, cwd: str = None):
         # force ElevenLabs so the voice actually takes effect.
         # Prefer paid ElevenLabs when a per-model voice is mapped (Starter plan).
         # Chain falls through to OpenAI → edge → system_voice on failure (e.g. quota exceeded).
+        # Prefer Cartesia (fastest, cheapest) → ElevenLabs → OpenAI → edge → system
+        cartesia_override = get_cartesia_voice_for_transcript(transcript_path)
         elevenlabs_override = get_voice_id_for_transcript(transcript_path)
-        tts_script = get_tts_script_path(prefer='elevenlabs' if elevenlabs_override else '')
+        if cartesia_override and os.getenv('CARTESIA_API_KEY'):
+            prefer = 'cartesia'
+        elif elevenlabs_override:
+            prefer = 'elevenlabs'
+        else:
+            prefer = ''
+        tts_script = get_tts_script_path(prefer=prefer)
 
         from voice_selector import get_model_from_transcript
         detected_model = get_model_from_transcript(transcript_path) if transcript_path else None
@@ -355,10 +369,12 @@ def summarize_and_announce(transcript_path: str, cwd: str = None):
                 # Set API keys + per-model voice for EVERY backend so the fallback
                 # chain (eleven → openai → edge → system) keeps the right voice
                 # at whichever level actually plays the audio.
+                safe_env['CARTESIA_API_KEY'] = os.getenv('CARTESIA_API_KEY', '')
                 safe_env['ELEVENLABS_API_KEY'] = os.getenv('ELEVENLABS_API_KEY', '')
                 safe_env['OPENAI_API_KEY'] = os.getenv('OPENAI_API_KEY', '')
                 safe_env['OPENAI_TTS_DEBUG'] = os.getenv('OPENAI_TTS_DEBUG', 'false')
 
+                cartesia_voice = get_cartesia_voice_for_transcript(transcript_path) or os.getenv('CARTESIA_VOICE_ID', '')
                 eleven_voice = get_voice_id_for_transcript(transcript_path) or os.getenv('ELEVENLABS_VOICE_ID', '')
                 openai_voice = get_openai_voice_for_transcript(transcript_path) or os.getenv('OPENAI_TTS_VOICE', 'nova')
                 edge_voice = get_edge_voice_for_transcript(transcript_path) or os.getenv('EDGE_TTS_VOICE', 'en-US-AriaNeural')
@@ -371,13 +387,17 @@ def summarize_and_announce(transcript_path: str, cwd: str = None):
                     "summary": summary,
                 })
 
+                if cartesia_voice:
+                    safe_env['CARTESIA_VOICE_ID'] = cartesia_voice
                 if eleven_voice:
                     safe_env['ELEVENLABS_VOICE_ID'] = eleven_voice
                 safe_env['OPENAI_TTS_VOICE'] = openai_voice
                 safe_env['EDGE_TTS_VOICE'] = edge_voice
 
                 tts_script_str = str(tts_script)
-                if 'elevenlabs' in tts_script_str:
+                if 'cartesia' in tts_script_str:
+                    metadata["voice_id"] = cartesia_voice
+                elif 'elevenlabs' in tts_script_str:
                     metadata["voice_id"] = eleven_voice
                 elif 'openai' in tts_script_str:
                     metadata["voice_id"] = openai_voice
