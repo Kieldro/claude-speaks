@@ -30,36 +30,29 @@ LLM_TIMEOUT = 2
 
 
 def get_tts_script_path():
-    """
-    Get the cached TTS script path.
-    Uses cached audio files when available to save API costs and reduce latency.
-    """
-    # Get current script directory and construct utils/tts path
+    """Get TTS script. Same chain as response_summary: Cartesia → ElevenLabs → OpenAI → edge → system."""
     script_dir = Path(__file__).parent
     tts_dir = script_dir / "utils" / "tts"
 
-    # Use cached TTS wrapper (supports all TTS backends with caching)
-    cached_tts_script = tts_dir / "cached_tts.py"
-    if cached_tts_script.exists():
-        return str(cached_tts_script)
+    if os.getenv('CARTESIA_API_KEY'):
+        s = tts_dir / "cartesia_tts.py"
+        if s.exists():
+            return str(s)
 
-    # Fallback to non-cached scripts if cached_tts doesn't exist
-    # Check for OpenAI API key (highest priority - fastest and cheapest)
-    if os.getenv('OPENAI_API_KEY'):
-        openai_script = tts_dir / "openai_tts.py"
-        if openai_script.exists():
-            return str(openai_script)
-
-    # Check for ElevenLabs API key (second priority - higher quality but more expensive)
     if os.getenv('ELEVENLABS_API_KEY'):
-        elevenlabs_script = tts_dir / "elevenlabs_tts.py"
-        if elevenlabs_script.exists():
-            return str(elevenlabs_script)
+        s = tts_dir / "elevenlabs_tts.py"
+        if s.exists():
+            return str(s)
 
-    # Fall back to system voice (no API key required)
-    system_voice_script = tts_dir / "system_voice_tts.py"
-    if system_voice_script.exists():
-        return str(system_voice_script)
+    if os.getenv('OPENAI_API_KEY'):
+        s = tts_dir / "openai_tts.py"
+        if s.exists():
+            return str(s)
+
+    for name in ('edge_tts_speak.py', 'system_voice_tts.py'):
+        s = tts_dir / name
+        if s.exists():
+            return str(s)
 
     return None
 
@@ -214,19 +207,27 @@ def announce_completion(session_id=None, include_session_id=False, transcript_pa
         metadata["llm_backend"] = llm_backend
         metadata["tts_triggered"] = True
 
-        # Per-model voice overrides: ElevenLabs + OpenAI
-        # (cached_tts falls back to OpenAI when ElevenLabs quota exceeded)
+        # Per-model voice overrides for entire fallback chain
         tts_env = os.environ.copy()
+        from voice_selector import (
+            get_cartesia_voice_for_transcript,
+            get_openai_voice_for_transcript,
+            get_edge_voice_for_transcript,
+        )
+        cartesia_voice = get_cartesia_voice_for_transcript(transcript_path)
         eleven_voice = get_voice_id_for_transcript(transcript_path)
+        openai_voice = get_openai_voice_for_transcript(transcript_path)
+        edge_voice = get_edge_voice_for_transcript(transcript_path)
+
+        if cartesia_voice:
+            tts_env['CARTESIA_VOICE_ID'] = cartesia_voice
+            metadata["voice_id"] = cartesia_voice
         if eleven_voice:
             tts_env['ELEVENLABS_VOICE_ID'] = eleven_voice
-            metadata["voice_id"] = eleven_voice
-
-        from voice_selector import get_openai_voice_for_transcript
-        openai_voice = get_openai_voice_for_transcript(transcript_path)
         if openai_voice:
             tts_env['OPENAI_TTS_VOICE'] = openai_voice
-            metadata["openai_voice"] = openai_voice
+        if edge_voice:
+            tts_env['EDGE_TTS_VOICE'] = edge_voice
 
         # Fire-and-forget: spawn TTS in background, don't wait for completion
         subprocess.Popen(
