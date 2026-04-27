@@ -520,6 +520,17 @@ def main():
             debug_log("Another instance is running, exiting gracefully")
             sys.exit(0)  # Another instance is already playing audio
 
+        # Heralding blip to bridge the LLM-summary latency
+        if platform.system() == 'Darwin':
+            try:
+                subprocess.Popen(
+                    ['afplay', '/System/Library/Sounds/Hero.aiff'],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                    start_new_session=True,
+                )
+            except Exception:
+                pass
+
         try:
             # Summarize and announce the response
             session_cwd = input_data.get('cwd')

@@ -25,7 +25,8 @@ def user_is_watching() -> bool:
             ['lsappinfo', 'info', '-only', 'name', front_asn],
             capture_output=True, text=True, timeout=1
         ).stdout
-        if 'iTerm2' not in name_out and 'Terminal' not in name_out:
+        is_ghostty = 'Ghostty' in name_out
+        if 'iTerm2' not in name_out and 'Terminal' not in name_out and not is_ghostty:
             return False
 
         tmux_pane = os.environ.get('TMUX_PANE', '')
@@ -40,6 +41,12 @@ def user_is_watching() -> bool:
         ).stdout.strip()
         if flags != '11':
             return False
+
+        # Ghostty has no AppleScript tab-tty introspection, so skip step 3.
+        # Trade-off: if multiple Ghostty tabs each run their own tmux session,
+        # all panes claim "watching" when any Ghostty window is frontmost.
+        if is_ghostty:
+            return True
 
         # 3. The iTerm2 tab in front must be attached to THIS tmux session.
         # Each iTerm2 tab runs its own tmux client — we need the visible one.
