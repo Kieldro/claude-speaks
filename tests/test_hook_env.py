@@ -2,8 +2,9 @@
 Hook env propagation tests.
 
 Verify response_summary.summarize_and_announce() spawns the right TTS script
-with the model-specific voice in env (ELEVENLABS_VOICE_ID for opus/sonnet,
-OPENAI_TTS_VOICE for haiku).
+with the model-specific voice in env. Routing preference is
+Cartesia (when CARTESIA_API_KEY is set) → ElevenLabs → OpenAI → edge.
+Each test pins the relevant API keys so results don't depend on ~/.env.
 """
 import json
 import sys
@@ -19,8 +20,10 @@ sys.path.insert(0, str(REPO_ROOT))
 
 import response_summary
 
-OPUS_ID = "Gfpl8Yo74Is0W6cPUWWT"
-SONNET_ID = "EXAVITQu4vr4xnSDxMaL"
+OPUS_ID = "qNkzaJoHLLdpvgh5tISm"    # Carter the Mountain King
+SONNET_ID = "EXAVITQu4vr4xnSDxMaL"  # Sarah
+CARTESIA_OPUS = "ec58877e-44ae-4581-9078-a04225d42bd4"   # Charles - Heroic Man
+CARTESIA_FABLE = "87748186-23bb-4158-a1eb-332911b0b708"  # Alaric - Wizard
 
 
 def _write_transcript(tmp_path: Path, model: str, text: str = "I added unit tests.") -> Path:
@@ -71,7 +74,37 @@ def captured_spawn(monkeypatch):
     return captured
 
 
-def test_opus_routes_to_elevenlabs_with_max_voice(tmp_path, monkeypatch, captured_spawn):
+def test_opus_routes_to_cartesia_when_key_present(tmp_path, monkeypatch, captured_spawn):
+    monkeypatch.setenv("CARTESIA_API_KEY", "test-key")
+    monkeypatch.setenv("ELEVENLABS_API_KEY", "test-key")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    transcript = _write_transcript(tmp_path, "claude-opus-4-6")
+
+    metadata = response_summary.summarize_and_announce(str(transcript), cwd=str(tmp_path))
+
+    assert metadata["tts_triggered"] is True
+    assert "cartesia_tts.py" in captured_spawn["cmd"][0]
+    assert captured_spawn["env"]["CARTESIA_VOICE_ID"] == CARTESIA_OPUS
+    assert metadata["voice_id"] == CARTESIA_OPUS
+
+
+def test_fable_routes_to_cartesia_with_wizard_voice(tmp_path, monkeypatch, captured_spawn):
+    monkeypatch.setenv("CARTESIA_API_KEY", "test-key")
+    transcript = _write_transcript(tmp_path, "claude-fable-5")
+
+    metadata = response_summary.summarize_and_announce(str(transcript), cwd=str(tmp_path))
+
+    assert metadata["tts_triggered"] is True
+    assert "cartesia_tts.py" in captured_spawn["cmd"][0]
+    assert captured_spawn["env"]["CARTESIA_VOICE_ID"] == CARTESIA_FABLE
+    # Fallback voices for the rest of the chain
+    assert captured_spawn["env"]["OPENAI_TTS_VOICE"] == "fable"
+    assert captured_spawn["env"]["EDGE_TTS_VOICE"] == "en-GB-RyanNeural"
+    assert metadata["voice_id"] == CARTESIA_FABLE
+
+
+def test_opus_routes_to_elevenlabs_without_cartesia_key(tmp_path, monkeypatch, captured_spawn):
+    monkeypatch.delenv("CARTESIA_API_KEY", raising=False)
     monkeypatch.setenv("ELEVENLABS_API_KEY", "test-key")
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")  # would normally win, but opus forces ElevenLabs
     transcript = _write_transcript(tmp_path, "claude-opus-4-6")
@@ -85,7 +118,8 @@ def test_opus_routes_to_elevenlabs_with_max_voice(tmp_path, monkeypatch, capture
     assert metadata["voice_id"] == OPUS_ID
 
 
-def test_sonnet_routes_to_elevenlabs_with_sarah_voice(tmp_path, monkeypatch, captured_spawn):
+def test_sonnet_routes_to_elevenlabs_without_cartesia_key(tmp_path, monkeypatch, captured_spawn):
+    monkeypatch.delenv("CARTESIA_API_KEY", raising=False)
     monkeypatch.setenv("ELEVENLABS_API_KEY", "test-key")
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     transcript = _write_transcript(tmp_path, "claude-sonnet-4-6")
@@ -96,8 +130,9 @@ def test_sonnet_routes_to_elevenlabs_with_sarah_voice(tmp_path, monkeypatch, cap
     assert captured_spawn["env"]["ELEVENLABS_VOICE_ID"] == SONNET_ID
 
 
-def test_haiku_routes_to_openai_with_sage_voice(tmp_path, monkeypatch, captured_spawn):
-    """Haiku has no ElevenLabs voice, so it should route to OpenAI with `sage`."""
+def test_haiku_routes_to_openai_with_nova_voice(tmp_path, monkeypatch, captured_spawn):
+    """Haiku has no ElevenLabs voice; without Cartesia it routes to OpenAI with `nova`."""
+    monkeypatch.delenv("CARTESIA_API_KEY", raising=False)
     monkeypatch.delenv("ELEVENLABS_API_KEY", raising=False)
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     transcript = _write_transcript(tmp_path, "claude-haiku-4-5-20251001")
@@ -105,14 +140,28 @@ def test_haiku_routes_to_openai_with_sage_voice(tmp_path, monkeypatch, captured_
     response_summary.summarize_and_announce(str(transcript), cwd=str(tmp_path))
 
     assert "openai_tts.py" in captured_spawn["cmd"][0]
-    assert captured_spawn["env"]["OPENAI_TTS_VOICE"] == "sage"
+    assert captured_spawn["env"]["OPENAI_TTS_VOICE"] == "nova"
     assert captured_spawn["env"]["OPENAI_API_KEY"] == "test-key"
+
+
+def test_fable_routes_to_openai_with_fable_voice(tmp_path, monkeypatch, captured_spawn):
+    """Fable has no ElevenLabs voice; without Cartesia it routes to OpenAI with `fable`."""
+    monkeypatch.delenv("CARTESIA_API_KEY", raising=False)
+    monkeypatch.delenv("ELEVENLABS_API_KEY", raising=False)
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    transcript = _write_transcript(tmp_path, "claude-fable-5")
+
+    response_summary.summarize_and_announce(str(transcript), cwd=str(tmp_path))
+
+    assert "openai_tts.py" in captured_spawn["cmd"][0]
+    assert captured_spawn["env"]["OPENAI_TTS_VOICE"] == "fable"
 
 
 def test_safe_env_includes_all_backend_keys_for_cascading_fallback(tmp_path, monkeypatch, captured_spawn):
     """All backend API keys + per-model voices must be in env so the
-    fallback chain (eleven → openai → edge → system) can use the right
-    voice at whichever level actually plays the audio."""
+    fallback chain (cartesia → eleven → openai → edge → system) can use the
+    right voice at whichever level actually plays the audio."""
+    monkeypatch.setenv("CARTESIA_API_KEY", "cartesia-key")
     monkeypatch.setenv("ELEVENLABS_API_KEY", "eleven-key")
     monkeypatch.setenv("OPENAI_API_KEY", "openai-key")
     transcript = _write_transcript(tmp_path, "claude-opus-4-6")
@@ -120,9 +169,11 @@ def test_safe_env_includes_all_backend_keys_for_cascading_fallback(tmp_path, mon
     response_summary.summarize_and_announce(str(transcript), cwd=str(tmp_path))
 
     env = captured_spawn["env"]
+    assert env.get("CARTESIA_API_KEY") == "cartesia-key"
     assert env.get("ELEVENLABS_API_KEY") == "eleven-key"
     assert env.get("OPENAI_API_KEY") == "openai-key"
-    assert env.get("ELEVENLABS_VOICE_ID")  # Opus → Max
+    assert env.get("CARTESIA_VOICE_ID") == CARTESIA_OPUS
+    assert env.get("ELEVENLABS_VOICE_ID") == OPUS_ID
     assert env.get("OPENAI_TTS_VOICE") == "onyx"  # Opus fallback voice
     assert env.get("EDGE_TTS_VOICE") == "en-US-AndrewNeural"  # Opus edge voice
 
