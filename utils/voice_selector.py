@@ -9,6 +9,7 @@ MODEL_VOICE_MAP = {
     "opus": "qNkzaJoHLLdpvgh5tISm",    # Carter the Mountain King
     "sonnet": "EXAVITQu4vr4xnSDxMaL",  # Sarah — mature, reassuring, confident
     # haiku intentionally omitted — routes through OpenAI with sage voice below
+    # fable intentionally omitted — routes through OpenAI with fable voice below
 }
 
 # OpenAI TTS voices — used when no ElevenLabs override exists for the model
@@ -16,6 +17,7 @@ MODEL_OPENAI_VOICE_MAP = {
     "opus": "onyx",       # deep male
     "sonnet": "alloy",    # neutral
     "haiku": "nova",      # high-pitched female
+    "fable": "fable",     # British storyteller
 }
 
 # Cartesia voices — ultra-low latency, cheaper than ElevenLabs
@@ -23,6 +25,7 @@ MODEL_CARTESIA_VOICE_MAP = {
     "opus": "ec58877e-44ae-4581-9078-a04225d42bd4",    # Charles - Heroic Man (very deep)
     "sonnet": "bf0a246a-8642-498a-9950-80c35e9276b5",  # Sophie - Teacher (mature female)
     "haiku": "58fbaf73-d7de-4e82-a6b3-118180e7057c",   # Janet - Sunny Speaker (bright female)
+    "fable": "87748186-23bb-4158-a1eb-332911b0b708",   # Alaric - Wizard (wistful, wise elder)
 }
 
 # Edge TTS voices — free Microsoft neural voices, no quota
@@ -30,6 +33,7 @@ MODEL_EDGE_VOICE_MAP = {
     "opus": "en-US-AndrewNeural",   # warm, confident, authoritative
     "sonnet": "en-US-AvaNeural",    # expressive, caring, pleasant
     "haiku": "en-US-EmmaNeural",    # cheerful, clear, bright
+    "fable": "en-GB-RyanNeural",    # British male, closest free match to a storyteller
 }
 
 

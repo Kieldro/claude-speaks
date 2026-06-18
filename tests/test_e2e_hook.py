@@ -20,14 +20,19 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 HOOK_PATH = Path.home() / ".claude" / "hooks" / "response_summary.py"
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 
-OPUS_ID = "Gfpl8Yo74Is0W6cPUWWT"
-SONNET_ID = "EXAVITQu4vr4xnSDxMaL"
+# Cartesia is the primary provider — every model routes there when
+# CARTESIA_API_KEY is available (the gate below skips otherwise).
+CARTESIA_OPUS = "ec58877e-44ae-4581-9078-a04225d42bd4"    # Charles - Heroic Man
+CARTESIA_SONNET = "bf0a246a-8642-498a-9950-80c35e9276b5"  # Sophie - Teacher
+CARTESIA_HAIKU = "58fbaf73-d7de-4e82-a6b3-118180e7057c"   # Janet - Sunny Speaker
+CARTESIA_FABLE = "87748186-23bb-4158-a1eb-332911b0b708"   # Alaric - Wizard
 
 # (model_id, expected_primary_script, expected_voice_marker_in_log)
 CASES = [
-    ("claude-opus-4-6", "elevenlabs_tts.py", f"voice_id={OPUS_ID}"),
-    ("claude-sonnet-4-6", "elevenlabs_tts.py", f"voice_id={SONNET_ID}"),
-    ("claude-haiku-4-5-20251001", "openai_tts.py", "voice=sage"),
+    ("claude-opus-4-6", "cartesia_tts.py", f"voice_id={CARTESIA_OPUS}"),
+    ("claude-sonnet-4-6", "cartesia_tts.py", f"voice_id={CARTESIA_SONNET}"),
+    ("claude-haiku-4-5-20251001", "cartesia_tts.py", f"voice_id={CARTESIA_HAIKU}"),
+    ("claude-fable-5", "cartesia_tts.py", f"voice_id={CARTESIA_FABLE}"),
 ]
 
 
@@ -48,7 +53,8 @@ def _have_summarizer_key():
 
 
 def _have_tts_key():
-    return bool(os.environ.get("ELEVENLABS_API_KEY") or os.environ.get("OPENAI_API_KEY"))
+    # CASES assume Cartesia-primary routing, so its key is required.
+    return bool(os.environ.get("CARTESIA_API_KEY"))
 
 
 pytestmark = pytest.mark.skipif(
