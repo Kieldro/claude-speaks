@@ -40,7 +40,7 @@ def speak(text: str) -> bool:
     _log(f"voice_id={voice_id}")
 
     body = json.dumps({
-        "model_id": "sonic-3",
+        "model_id": os.getenv('CARTESIA_MODEL_ID', 'sonic-3.5'),
         "transcript": text,
         "voice": {"mode": "id", "id": voice_id},
         "output_format": {
