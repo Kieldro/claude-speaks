@@ -49,6 +49,10 @@ def main():
         if os.getenv('CLAUDE_TTS_ENABLED', 'true').lower() not in ('true', '1', 'yes'):
             sys.exit(0)
 
+        from dnd import dnd_active
+        if dnd_active():
+            sys.exit(0)
+
         tts_script = get_tts_script_path()
         if not tts_script:
             sys.exit(0)

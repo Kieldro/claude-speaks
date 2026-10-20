@@ -265,6 +265,10 @@ def main():
         if os.getenv('CLAUDE_TTS_ENABLED', 'true').lower() not in ('true', '1', 'yes'):
             sys.exit(0)
 
+        from dnd import dnd_active
+        if dnd_active():
+            sys.exit(0)
+
         # When user is away, response_summary plays instead — skip canned.
         sys.path.insert(0, str(Path(__file__).parent / "utils"))
         from attention import user_is_watching

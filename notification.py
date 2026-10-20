@@ -121,6 +121,10 @@ def main():
         if os.getenv('CLAUDE_TTS_ENABLED', 'true').lower() not in ('true', '1', 'yes'):
             sys.exit(0)
 
+        from dnd import dnd_active
+        if dnd_active():
+            sys.exit(0)
+
         # Announce notification via TTS
         # Skip TTS for the generic "Claude is waiting for your input" message
         if input_data.get('message') != 'Claude is waiting for your input':

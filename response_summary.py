@@ -471,6 +471,11 @@ def main():
             debug_log("All TTS disabled via CLAUDE_TTS_ENABLED")
             sys.exit(0)
 
+        from dnd import dnd_active
+        if dnd_active():
+            debug_log("Muted: Do Not Disturb is on")
+            sys.exit(0)
+
         # Quick disable: touch ~/.claude/no-summary to mute, rm to re-enable
         kill_file = Path.home() / '.claude' / 'no-summary'
         if kill_file.exists():
